@@ -24,6 +24,14 @@ def test_codex_plugin_manifest_exposes_axon_mcp_server():
     assert mcp["mcpServers"]["axon"]["args"][0].endswith(".claude-plugin/serve.sh")
 
 
+def test_plugin_launcher_uses_writable_cache_venv():
+    script = (ROOT / ".claude-plugin/serve.sh").read_text(encoding="utf-8")
+
+    assert 'AXON_PLUGIN_VENV' in script
+    assert 'CACHE_ROOT="${XDG_CACHE_HOME:-${TMPDIR:-/tmp}}"' in script
+    assert 'VENV="$ROOT/.venv-plugin"' not in script
+
+
 def test_codex_marketplace_points_at_repo_root():
     marketplace = _load(".agents/plugins/marketplace.json")
     [entry] = marketplace["plugins"]
