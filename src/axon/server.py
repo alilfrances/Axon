@@ -10,7 +10,10 @@ from mcp.server.fastmcp import FastMCP
 from axon.providers.base import ContextProvider
 from axon.providers.select import select_provider
 from axon.index import RepoIndex
+from axon.tools.inspect_run import inspect_test
+from axon.tools.investigate import investigate as investigate_tool
 from axon.tools.localize import localize as localize_tool
+from axon.tools.rank_patches import rank_patches as rank_patches_tool
 from axon.tools.repro import repro_scaffold
 from axon.tools.run_tests import run_test_suite
 from axon.tools.refute import refute as refute_tool
@@ -67,9 +70,26 @@ def verify_fix(repo: str, patch: str, repro_test: str, timeout: int = 600, keep:
     return verify_fix_tool(repo, patch, repro_test, timeout, keep)
 
 
+@app.tool(name="rank_patches")
+def rank_patches(repo: str, patches: list[str], repro_test: str, timeout: int = 600) -> dict:
+    return rank_patches_tool(repo, patches, repro_test, timeout)
+
+
 @app.tool(name="spectrum")
 def spectrum(repo: str, failing_tests: list[str], passing_tests: list[str] | None = None, top: int = 20) -> dict:
     return spectrum_localize(repo, failing_tests, passing_tests, top)
+
+
+@app.tool(name="inspect")
+def inspect(repo: str, test_target: str, timeout: int = 120) -> dict:
+    return inspect_test(repo, test_target, timeout)
+
+
+@app.tool(name="investigate")
+def investigate(repo: str, bug_text: str, failing_test: str | None = None, k: int = 5) -> dict:
+    provider = _provider(repo)
+    index = _repo_index(provider, Path(repo))
+    return investigate_tool(provider, index, repo, bug_text, failing_test, k)
 
 
 @app.tool(name="sast_scan")

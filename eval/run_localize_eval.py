@@ -27,10 +27,24 @@ from axon.providers.builtin import BuiltinProvider  # noqa: E402
 from axon.tools.localize import localize  # noqa: E402
 
 _DIFF_FILE = re.compile(r"^diff --git a/(\S+) b/\S+", re.MULTILINE)
+_HUNK_DEF = re.compile(r"^@@[^@]*@@ .*?(?:async )?def (\w+)", re.MULTILINE)
+_FILE_SPLIT = re.compile(r"^diff --git a/(\S+) b/\S+$", re.MULTILINE)
 
 
 def gold_files(patch: str) -> set[str]:
     return set(_DIFF_FILE.findall(patch))
+
+
+def gold_functions(patch: str) -> set[tuple[str, str]]:
+    out: set[tuple[str, str]] = set()
+    sections = _FILE_SPLIT.split(patch)
+    for i in range(1, len(sections) - 1, 2):
+        file, body = sections[i], sections[i + 1]
+        if not file.endswith(".py"):
+            continue
+        for name in _HUNK_DEF.findall(body):
+            out.add((file, name))
+    return out
 
 
 def shallow_fetch(repo: str, sha: str, dest: Path) -> bool:
@@ -47,22 +61,42 @@ def shallow_fetch(repo: str, sha: str, dest: Path) -> bool:
         return False
 
 
-def eval_instance(inst: dict, ks: list[int]) -> dict[int, bool] | None:
+def eval_instance(inst: dict, ks: list[int]) -> dict[str, dict[int, bool]] | None:
     gold = gold_files(inst["patch"])
     gold_py = {f for f in gold if f.endswith(".py")}
     if not gold_py:
         return None  # non-Python target; out of v0 scope
+    gold_fns = gold_functions(inst["patch"])
     with tempfile.TemporaryDirectory() as tmp:
         repo_dir = Path(tmp)
         if not shallow_fetch(inst["repo"], inst["base_commit"], repo_dir):
             return None
         provider = BuiltinProvider(repo_dir)
-        provider.index(repo_dir)
-        index = RepoIndex(repo_dir)
-        index.refresh()
-        result = localize(provider, index, inst["problem_statement"], k=max(ks))
-        ranked = [s["file"] for s in result["suspects"]]
-        return {k: bool(gold_py & set(ranked[:k])) for k in ks}
+        try:
+            provider.index(repo_dir)
+            index = RepoIndex(repo_dir)
+            try:
+                index.refresh()
+                result = localize(provider, index, inst["problem_statement"], k=max(ks))
+            finally:
+                index.close()
+        finally:
+            provider.close()
+        suspects = result["suspects"]
+        ranked = [s["file"] for s in suspects]
+        file_hits = {k: bool(gold_py & set(ranked[:k])) for k in ks}
+        function_hits = {
+            k: bool(
+                gold_fns
+                and any(
+                    (suspect["file"], fn["qualname"].split(".")[-1]) in gold_fns
+                    for suspect in suspects[:k]
+                    for fn in suspect.get("functions", [])
+                )
+            )
+            for k in ks
+        }
+        return {"file": file_hits, "function": function_hits}
 
 
 def main() -> None:
@@ -80,9 +114,10 @@ def main() -> None:
     rows = rows[: args.max]
 
     ks = sorted(set(args.k))
-    hits = {k: 0 for k in ks}
+    file_hits = {k: 0 for k in ks}
+    function_hits = {k: 0 for k in ks}
     scored = skipped = 0
-    print(f"Running File@{ks} on {len(rows)} instances from {args.repos}\n")
+    print(f"Running File@{ks} and Function@{ks} on {len(rows)} instances from {args.repos}\n")
     for r in rows:
         outcome = eval_instance(r, ks)
         if outcome is None:
@@ -91,13 +126,20 @@ def main() -> None:
         else:
             scored += 1
             for k in ks:
-                hits[k] += outcome[k]
-            tag = " ".join(f"@{k}:{'HIT' if outcome[k] else 'MISS'}" for k in ks)
+                file_hits[k] += outcome["file"][k]
+                function_hits[k] += outcome["function"][k]
+            tag = " ".join(
+                f"@{k}:F{'HIT' if outcome['file'][k] else 'MISS'}/"
+                f"Fn{'HIT' if outcome['function'][k] else 'MISS'}"
+                for k in ks
+            )
         print(f"  [{tag}] {r['instance_id']}")
 
     for k in ks:
-        rate = (hits[k] / scored * 100) if scored else 0.0
-        print(f"\nFile@{k}: {hits[k]}/{scored} = {rate:.0f}%  (skipped {skipped})")
+        file_rate = (file_hits[k] / scored * 100) if scored else 0.0
+        fn_rate = (function_hits[k] / scored * 100) if scored else 0.0
+        print(f"\nFile@{k}: {file_hits[k]}/{scored} = {file_rate:.0f}%  (skipped {skipped})")
+        print(f"Function@{k}: {function_hits[k]}/{scored} = {fn_rate:.0f}%  (skipped {skipped})")
     print(f"NOTE: partial slice ({', '.join(args.repos)}, n={scored}) — NOT the frozen 60.")
 
 
