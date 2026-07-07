@@ -46,13 +46,36 @@ which prove the machinery works. They are smoke signals, not benchmark numbers.
   rule missed one variant. Recall is *reported, not gated* (plan §1); above the
   ≥70% target but the 798 rule needs strengthening.
 
+## Real benchmark — Target A measured (no LLM, no Docker)
+
+`eval/run_localize_eval.py` runs deterministic File@k on **real SWE-bench
+Verified repos** (shallow-fetched at base_commit, indexed, localized). Slice:
+11 instances from the lightweight repos (requests, flask, seaborn) — a partial
+slice, NOT the full frozen 60.
+
+| Metric | Result | Reading |
+|---|---|---|
+| **File@3** | **55%** (6/11) | deterministic RRF ranking, no LLM reranker |
+| **File@10** | **91%** (10/11) | the gold file IS in Axon's candidate set |
+
+**The load-bearing finding:** retrieval recall@10 is 91% — Axon surfaces the
+right file almost always; it just doesn't always rank it top-3 without a
+reranker. That is exactly the gap the calling agent's LLM closes (and what the
+plan predicted: Axon supplies candidates + evidence, the agent reranks to
+precision). The ≥90% File@3 headline is therefore *plausible with rerank* on
+this slice — but the rerank layer needs an LLM (API budget), which this
+environment lacks, so File@3-with-rerank remains unmeasured.
+
 ## NOT yet done (honest gaps)
 
-- **Frozen benchmark not run.** SWE-bench Verified subset + PrimeVul Python
-  slice (eval/EVAL.md) require dataset download + Docker (SWE-bench harness)
-  + LLM agent budget. The plumbing is built; the eval run is the next real
-  milestone. All headline metrics (File@3 ≥90%, precision ≥90%, recall) are
-  defined and measurable but UNMEASURED against the real sets.
+- **Target B (verified-fix) unmeasured** — needs the SWE-bench Docker harness;
+  Docker is absent here. The `verify_fix` machinery works on fixtures.
+- **Target C on real PrimeVul unmeasured** — deterministic and runnable
+  (no LLM/Docker), but the labeled Python slice wasn't downloaded this run.
+  Fixture precision was 100%. This is the cheapest remaining real number to get.
+- **File@3-with-rerank unmeasured** — no LLM/API budget in this environment.
+- **Full frozen 60** (incl. django/sympy) not run — bounded to lightweight
+  repos to avoid multi-GB clones autonomously.
 - **No LLM in the loop yet.** Axon supplies deterministic evidence + candidate
   ranking; the calling agent is the reasoning layer. The 90% drivers
   (verify loop, adversarial triage) exist; end-to-end 90% is a claim to be

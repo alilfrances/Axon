@@ -63,4 +63,4 @@ rules:
     message: "CWE-798: hardcoded secret-like value"
     metadata:
       cwe: "CWE-798"
-    pattern-regex: "(?i)(secret|token|api[_-]?key)\\s*=\\s*[\"'][^\"']{8,}[\"']"
+    pattern-regex: "(?i)(secret|token|api[_-]?key|passwd|password|pwd)\\s*=\\s*[\"'][^\"']{8,}[\"']"
