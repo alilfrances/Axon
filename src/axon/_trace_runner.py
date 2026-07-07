@@ -34,7 +34,11 @@ def main(argv: list[str] | None = None) -> int:
         if _skip(rel):
             continue
         lines.setdefault(str(rel), set()).add(int(lineno))
-    print(json.dumps({file: sorted(values) for file, values in sorted(lines.items())}))
+    payload = {
+        "lines": {file: sorted(values) for file, values in sorted(lines.items())},
+        "exit_code": int(exit_code),
+    }
+    print(json.dumps(payload))
     return int(exit_code)
 
 
