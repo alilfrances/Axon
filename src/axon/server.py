@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from axon.providers.base import ContextProvider
 from axon.providers.select import select_provider
 from axon.index import RepoIndex
+from axon.tools.inspect_run import inspect_test
 from axon.tools.localize import localize as localize_tool
 from axon.tools.repro import repro_scaffold
 from axon.tools.run_tests import run_test_suite
@@ -70,6 +71,11 @@ def verify_fix(repo: str, patch: str, repro_test: str, timeout: int = 600, keep:
 @app.tool(name="spectrum")
 def spectrum(repo: str, failing_tests: list[str], passing_tests: list[str] | None = None, top: int = 20) -> dict:
     return spectrum_localize(repo, failing_tests, passing_tests, top)
+
+
+@app.tool(name="inspect")
+def inspect(repo: str, test_target: str, timeout: int = 120) -> dict:
+    return inspect_test(repo, test_target, timeout)
 
 
 @app.tool(name="sast_scan")
