@@ -76,6 +76,7 @@ def localize(
         if spectrum_items:
             ranked_lists.append(("spectrum", spectrum_items))
     suspects = _fuse(ranked_lists, k)
+    _attach_functions(index, ranked_lists, suspects)
     note = "deterministic ranking; agent should rerank with reasoning"
     if spectrum_note:
         note = f"{note}; {spectrum_note}"
@@ -364,6 +365,39 @@ def _recency_candidates(repo_root: str, limit: int = 20) -> list[dict]:
         if len(out) >= limit:
             break
     return out
+
+
+def _attach_functions(index: RepoIndex, ranked_lists: list[tuple[str, list[dict]]], suspects: list[dict]) -> None:
+    suspect_files = {s["file"] for s in suspects}
+    hits: dict[str, list[tuple[int, float]]] = {}
+    for source, candidates in ranked_lists:
+        weight = _WEIGHTS[source]
+        for cand in candidates:
+            file = cand.get("file")
+            line = int(cand.get("line", 1) or 1)
+            if file in suspect_files and line > 1:
+                hits.setdefault(file, []).append((line, weight))
+    for suspect in suspects:
+        scored: dict[str, dict] = {}
+        for line, weight in hits.get(suspect["file"], []):
+            row = index.conn.execute(
+                "SELECT qualname, line, end_line FROM symbols"
+                " WHERE file=? AND kind IN ('function','method') AND line<=? AND end_line>=?"
+                " ORDER BY line DESC LIMIT 1",
+                (suspect["file"], line, line),
+            ).fetchone()
+            if row is None:
+                continue
+            qualname, fn_line, fn_end = row
+            entry = scored.setdefault(
+                qualname,
+                {"qualname": qualname, "line": fn_line, "end_line": fn_end, "score": 0.0},
+            )
+            entry["score"] += weight
+        functions = sorted(scored.values(), key=lambda f: (-f["score"], f["qualname"]))[:3]
+        for fn in functions:
+            fn["score"] = round(fn["score"], 3)
+        suspect["functions"] = functions
 
 
 def _fuse(ranked_lists: list[tuple[str, list[dict]]], k: int) -> list[dict]:
