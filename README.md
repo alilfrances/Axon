@@ -33,9 +33,9 @@ Research shows no agent hits "90% detect everything" universally. Axon reaches
 
 ## Tools (MCP)
 
-`axon serve` exposes 11 tools over MCP (stdio): `index`, `graph_context`,
+`axon serve` exposes 14 tools over MCP (stdio): `index`, `graph_context`,
 `search`, `localize`, `run_tests`, `repro`, `verify_fix`, `spectrum`,
-`sast_scan`, `refute`, `triage`.
+`sast_scan`, `refute`, `triage`, `inspect`, `rank_patches`, `investigate`.
 
 ## Quickstart
 
@@ -72,6 +72,10 @@ end-to-end. The frozen benchmark run (SWE-bench + PrimeVul) is the next
 milestone — see [`docs/VERIFICATION.md`](docs/VERIFICATION.md) for exactly
 what is proven vs. still unmeasured, and [`docs/PLAN.md`](docs/PLAN.md) for
 the design.
+
+**v0.3 debugging upgrades** — function-level localization, runtime-state
+inspection, patch ranking, and one-call investigate bundles add deterministic
+evidence for root-cause debugging workflows.
 
 ## Security
 
