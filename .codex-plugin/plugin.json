@@ -1,0 +1,35 @@
+{
+  "name": "axon",
+  "version": "0.5.0",
+  "description": "Root-cause debugging & vulnerability MCP server: localize bugs, verify fixes, and triage security findings with adversarial refutation.",
+  "author": {
+    "name": "AlilKuizon"
+  },
+  "license": "MIT",
+  "keywords": [
+    "debugging",
+    "localization",
+    "security",
+    "mcp",
+    "verification"
+  ],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Axon",
+    "shortDescription": "Root-cause debugging and vulnerability tools for Codex",
+    "longDescription": "Axon exposes MCP tools that help Codex localize bugs, run focused verification, inspect runtime failures, rank patches, and refute security findings before reporting them.",
+    "developerName": "AlilKuizon",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use Axon to localize this failure.",
+      "Use Axon to verify this fix and rank candidate patches.",
+      "Use Axon to triage these security findings."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

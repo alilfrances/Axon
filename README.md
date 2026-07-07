@@ -56,13 +56,20 @@ no GPU, no model download.
 /plugin install axon@axon
 ```
 
+## Install as a Codex plugin
+
+```bash
+codex plugin marketplace install <path-or-git-url-of-this-repo>
+```
+
 The first server start bootstraps a private plugin venv and needs `python3`.
 Semgrep-backed SAST is optional: install it with `pip install 'axon-debug[security]'`
 into the plugin venv, or have `semgrep` available on `PATH`.
 
 Versioning: Axon uses semver; bump `pyproject.toml`,
-`.claude-plugin/plugin.json`, and `.claude-plugin/marketplace.json` together
-on release.
+`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
+`.codex-plugin/plugin.json`, and `.agents/plugins/marketplace.json` together on
+release.
 
 ## Status
 

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "axon": {
+      "command": "sh",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/serve.sh"
+      ]
+    }
+  }
+}

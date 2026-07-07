@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-ROOT="${CLAUDE_PLUGIN_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}"
+ROOT="${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}}"
 VENV="$ROOT/.venv-plugin"
 
 if [ ! -x "$VENV/bin/axon" ]; then
