@@ -65,8 +65,9 @@ class RepoIndex:
         return {"parsed": parsed, "removed": len(removed), "files": total}
 
     def _drop(self, rel: str) -> None:
-        for table in ("symbols", "calls", "imports"):
-            self.conn.execute(f"DELETE FROM {table} WHERE file=?", (rel,))
+        self.conn.execute("DELETE FROM symbols WHERE file=?", (rel,))
+        self.conn.execute("DELETE FROM calls WHERE file=?", (rel,))
+        self.conn.execute("DELETE FROM imports WHERE file=?", (rel,))
         self.conn.execute("DELETE FROM files WHERE path=?", (rel,))
 
     def _store(self, facts: FileFacts, mtime: float, size: int) -> None:

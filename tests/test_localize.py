@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 from axon.index import RepoIndex
 from axon.providers.base import GraphContext, SearchHit
@@ -176,3 +177,64 @@ def test_stopwords_excluded_from_strong_identifiers():
         "file",
         "line",
     }
+
+
+def test_localize_recency_boosts_recently_changed_file(git_fixture_repo):
+    from axon.tools.localize import _recency_candidates
+
+    root = git_fixture_repo()
+    (root / "calc" / "api.py").write_text(
+        "from calc.core import divide\n\n"
+        "def ratio(a, b):\n"
+        "    return divide(a, b)\n\n"
+        "def extra():\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-m", "touch api"], cwd=root, check=True, capture_output=True, text=True)
+
+    cands = _recency_candidates(str(root))
+    assert cands and cands[0]["file"] == "calc/api.py"
+    assert "recent" in cands[0]["evidence"]
+
+    provider = BuiltinProvider(root)
+    provider.index(root)
+    index = RepoIndex(root)
+    try:
+        index.refresh()
+        result = localize(provider, index, "ratio computes wrong value in api")
+        files = [s["file"] for s in result["suspects"]]
+        assert "calc/api.py" in files
+    finally:
+        provider.close()
+        index.close()
+
+
+def test_recency_candidates_non_git_repo_empty(fixture_repo):
+    from axon.tools.localize import _recency_candidates
+
+    assert _recency_candidates(str(fixture_repo())) == []
+
+
+def test_localize_attaches_enclosing_functions(fixture_repo):
+    root = fixture_repo()
+    provider = BuiltinProvider(root)
+    provider.index(root)
+    index = RepoIndex(root)
+    try:
+        index.refresh()
+        bug = (
+            "divide crashes\n"
+            'Traceback (most recent call last):\n'
+            '  File "calc/core.py", line 5, in divide\n'
+            "ZeroDivisionError: division by zero\n"
+        )
+        result = localize(provider, index, bug)
+        top = result["suspects"][0]
+        assert top["file"] == "calc/core.py"
+        quals = [f["qualname"] for f in top.get("functions", [])]
+        assert "divide" in quals
+    finally:
+        provider.close()
+        index.close()
