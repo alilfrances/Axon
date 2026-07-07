@@ -32,3 +32,22 @@ def test_cli_doctor_no_crash(capsys):
 
     assert "python:" in out
     assert "active_backend:" in out
+
+
+def test_cli_index_uses_provider_ladder(monkeypatch, tmp_path, capsys):
+    calls = []
+
+    class StubProvider:
+        def index(self, path):
+            return {"backend": "stub", "path": str(path)}
+
+    def fake_select_provider(path, prefer=None):
+        calls.append((path, prefer))
+        return StubProvider()
+
+    monkeypatch.setattr(cli, "select_provider", fake_select_provider)
+
+    assert cli.main(["index", str(tmp_path)]) == 0
+
+    assert calls == [(tmp_path, None)]
+    assert "'backend': 'stub'" in capsys.readouterr().out

@@ -39,6 +39,7 @@ class CortexProvider:
 
     def index(self, repo: Path) -> dict:
         self.repo = Path(repo).resolve()
+        fallback_stats = self._fallback.index(self.repo)
         try:
             proc = subprocess.run(
                 ["cortex", "ingest", str(self.repo)],
@@ -50,7 +51,7 @@ class CortexProvider:
                 return self._json_or_status(proc.stdout, {"backend": self.backend, "indexed": True})
         except Exception:
             pass  # cortex CLI unavailable/failed; fall through to builtin backend
-        out = self._fallback.index(self.repo)
+        out = fallback_stats
         out["backend"] = "cortex-fallback-builtin"
         self._using_fallback = True
         return out

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from axon.providers.builtin import BuiltinProvider
 from axon.providers.cortex import CortexProvider
 from axon.providers.grep import GrepProvider
@@ -47,3 +49,50 @@ def test_select_provider_default_never_raises(monkeypatch, fixture_repo):
         assert isinstance(provider, BuiltinProvider)
     finally:
         provider.close()
+
+
+def test_cortex_index_success_refreshes_builtin_fallback(monkeypatch, fixture_repo):
+    repo = fixture_repo()
+    monkeypatch.setattr(CortexProvider, "available", classmethod(lambda cls: True))
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:2] == ["cortex", "ingest"]:
+            return SimpleNamespace(returncode=0, stdout='{"backend": "cortex", "indexed": true}')
+        return SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr("axon.providers.cortex.subprocess.run", fake_run)
+    provider = CortexProvider(repo)
+    (repo / "calc" / "fresh.py").write_text(
+        "def fresh_symbol():\n    return 'fresh'\n",
+        encoding="utf-8",
+    )
+
+    stats = provider.index(repo)
+
+    assert stats == {"backend": "cortex", "indexed": True}
+    assert provider._using_fallback is False
+    assert any(hit.file == "calc/fresh.py" for hit in provider._fallback.search("fresh_symbol", 5))
+
+
+def test_cortex_index_failure_returns_refreshed_builtin_stats(monkeypatch, fixture_repo):
+    repo = fixture_repo()
+    monkeypatch.setattr(CortexProvider, "available", classmethod(lambda cls: True))
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:2] == ["cortex", "ingest"]:
+            return SimpleNamespace(returncode=1, stdout="")
+        return SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr("axon.providers.cortex.subprocess.run", fake_run)
+    provider = CortexProvider(repo)
+    (repo / "calc" / "failed.py").write_text(
+        "def failed_symbol():\n    return 'failed'\n",
+        encoding="utf-8",
+    )
+
+    stats = provider.index(repo)
+
+    assert stats["backend"] == "cortex-fallback-builtin"
+    assert stats["files"] >= 4
+    assert provider._using_fallback is True
+    assert any(hit.file == "calc/failed.py" for hit in provider.search("failed_symbol", 5))

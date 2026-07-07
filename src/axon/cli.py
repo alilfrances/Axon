@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
         server.main()
         return 0
     if args.cmd == "index":
-        provider = select_provider(Path(args.path), prefer="builtin")
+        provider = select_provider(Path(args.path))
         print(provider.index(Path(args.path)))
         return 0
     if args.cmd == "doctor":
