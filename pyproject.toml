@@ -23,6 +23,9 @@ axon = "axon.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+axon = ["rules/*.yml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

@@ -13,7 +13,10 @@ from axon.index import RepoIndex
 from axon.tools.localize import localize as localize_tool
 from axon.tools.repro import repro_scaffold
 from axon.tools.run_tests import run_test_suite
+from axon.tools.refute import refute as refute_tool
+from axon.tools.sast import sast_scan as sast_scan_tool
 from axon.tools.spectrum import spectrum_localize
+from axon.tools.triage import triage as triage_tool
 from axon.tools.verify_fix import verify_fix as verify_fix_tool
 
 app = FastMCP("axon")
@@ -67,6 +70,21 @@ def verify_fix(repo: str, patch: str, repro_test: str, timeout: int = 600, keep:
 @app.tool(name="spectrum")
 def spectrum(repo: str, failing_tests: list[str], passing_tests: list[str] | None = None, top: int = 20) -> dict:
     return spectrum_localize(repo, failing_tests, passing_tests, top)
+
+
+@app.tool(name="sast_scan")
+def sast_scan(repo: str, timeout: int = 60) -> dict:
+    return sast_scan_tool(repo, timeout)
+
+
+@app.tool(name="refute")
+def refute(repo: str, finding: dict, mode: str = "static") -> dict:
+    return refute_tool(repo, finding, mode)
+
+
+@app.tool(name="triage")
+def triage(repo: str) -> dict:
+    return triage_tool(repo)
 
 
 def _repo_index(provider: ContextProvider, repo: Path) -> RepoIndex:

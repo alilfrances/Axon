@@ -64,3 +64,54 @@ def git_fixture_repo(tmp_path: Path):
         return root
 
     return make_repo
+
+
+@pytest.fixture
+def vuln_repo(tmp_path: Path):
+    root = tmp_path / "vuln_repo"
+    (root / "app").mkdir(parents=True)
+    (root / "tests").mkdir()
+    (root / "app" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "app" / "vuln.py").write_text(
+        "import hashlib\n"
+        "import os\n"
+        "import pickle\n"
+        "import sqlite3\n"
+        "import subprocess\n\n"
+        "SECRET_TOKEN = \"sk_live_TRUE_CWE798\"\n\n"
+        "def run_user_command(cmd):\n"
+        "    return subprocess.run(cmd, shell=True)  # TP_CWE78\n\n"
+        "def load_user(db, username):\n"
+        "    sql = f\"SELECT * FROM users WHERE name = '{username}'\"  # TP_CWE89\n"
+        "    return db.execute(sql)\n\n"
+        "def render_name(name):\n"
+        "    return f\"<h1>{name}</h1>\"  # TP_CWE79\n\n"
+        "def read_user_file(base, user_path):\n"
+        "    return open(os.path.join(base, user_path)).read()  # TP_CWE22\n\n"
+        "def load_pickle(data):\n"
+        "    return pickle.loads(data)  # TP_CWE502\n\n"
+        "def digest_password(password):\n"
+        "    return hashlib.md5(password.encode()).hexdigest()  # TP_CWE327\n",
+        encoding="utf-8",
+    )
+    (root / "app" / "safe.py").write_text(
+        "import html\n"
+        "import subprocess\n\n"
+        "def constant_command():\n"
+        "    return subprocess.run(\"echo safe\", shell=True)  # FP_CONSTANT_INPUT\n\n"
+        "def render_safe(name):\n"
+        "    return f\"<p>{html.escape(name)}</p>\"  # FP_SANITIZED\n",
+        encoding="utf-8",
+    )
+    # Non-production context. Placed under examples/ (not tests/) because
+    # Semgrep's built-in defaults pre-exclude tests/, so a finding there would
+    # never reach refute. examples/ is scanned, letting refute demonstrate the
+    # test-context suppression that protects precision.
+    (root / "examples").mkdir()
+    (root / "examples" / "demo.py").write_text(
+        "import subprocess\n\n"
+        "def demo_shell():\n"
+        "    subprocess.run(cmd, shell=True)  # FP_TEST_CONTEXT\n",
+        encoding="utf-8",
+    )
+    return root

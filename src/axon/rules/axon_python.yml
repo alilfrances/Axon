@@ -1,0 +1,66 @@
+rules:
+  - id: axon.python.cwe-78.subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: "CWE-78: subprocess with shell=True can execute attacker-controlled commands"
+    metadata:
+      cwe: "CWE-78"
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.run($CMD, shell=True, ...)
+          - pattern: subprocess.call($CMD, shell=True, ...)
+          - pattern: subprocess.Popen($CMD, shell=True, ...)
+
+  - id: axon.python.cwe-89.sql-string-format
+    languages: [python]
+    severity: ERROR
+    message: "CWE-89: SQL query built with string formatting"
+    metadata:
+      cwe: "CWE-89"
+    patterns:
+      - pattern-either:
+          - pattern: $DB.execute(f"...")
+          - pattern: $DB.execute($SQL + $X)
+          - pattern: $SQL = f"..."
+
+  - id: axon.python.cwe-79.html-fstring
+    languages: [python]
+    severity: WARNING
+    message: "CWE-79: HTML response includes unsanitized formatted data"
+    metadata:
+      cwe: "CWE-79"
+    pattern-regex: "f[\"'].*<[^>]+>.*\\{.*\\}.*[\"']"
+
+  - id: axon.python.cwe-22.path-join-open
+    languages: [python]
+    severity: ERROR
+    message: "CWE-22: path built from user input reaches file open"
+    metadata:
+      cwe: "CWE-22"
+    pattern: open(os.path.join($BASE, $PATH), ...)
+
+  - id: axon.python.cwe-502.pickle-loads
+    languages: [python]
+    severity: ERROR
+    message: "CWE-502: pickle deserialization of untrusted data"
+    metadata:
+      cwe: "CWE-502"
+    pattern-either:
+      - pattern: pickle.loads($DATA)
+      - pattern: pickle.load($DATA)
+
+  - id: axon.python.cwe-327.weak-md5
+    languages: [python]
+    severity: WARNING
+    message: "CWE-327: weak MD5 hashing"
+    metadata:
+      cwe: "CWE-327"
+    pattern: hashlib.md5(...)
+
+  - id: axon.python.cwe-798.hardcoded-secret
+    languages: [python]
+    severity: ERROR
+    message: "CWE-798: hardcoded secret-like value"
+    metadata:
+      cwe: "CWE-798"
+    pattern-regex: "(?i)(secret|token|api[_-]?key)\\s*=\\s*[\"'][^\"']{8,}[\"']"
