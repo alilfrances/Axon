@@ -11,7 +11,10 @@ from axon.providers.base import ContextProvider
 from axon.providers.select import select_provider
 from axon.index import RepoIndex
 from axon.tools.localize import localize as localize_tool
+from axon.tools.repro import repro_scaffold
 from axon.tools.run_tests import run_test_suite
+from axon.tools.spectrum import spectrum_localize
+from axon.tools.verify_fix import verify_fix as verify_fix_tool
 
 app = FastMCP("axon")
 _providers: dict[str, ContextProvider] = {}
@@ -49,6 +52,21 @@ def localize(repo: str, bug_text: str, k: int = 10, failing_test: str | None = N
     provider = _provider(repo)
     index = _repo_index(provider, Path(repo))
     return localize_tool(provider, index, bug_text, k, failing_test)
+
+
+@app.tool(name="repro")
+def repro(repo: str, bug_slug: str, test_body: str | None = None) -> dict:
+    return repro_scaffold(repo, bug_slug, test_body)
+
+
+@app.tool(name="verify_fix")
+def verify_fix(repo: str, patch: str, repro_test: str, timeout: int = 600, keep: bool = False) -> dict:
+    return verify_fix_tool(repo, patch, repro_test, timeout, keep)
+
+
+@app.tool(name="spectrum")
+def spectrum(repo: str, failing_tests: list[str], passing_tests: list[str] | None = None, top: int = 20) -> dict:
+    return spectrum_localize(repo, failing_tests, passing_tests, top)
 
 
 def _repo_index(provider: ContextProvider, repo: Path) -> RepoIndex:

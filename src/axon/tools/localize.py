@@ -15,7 +15,7 @@ _QUOTE_RE = re.compile(r"'([^']+)'|\"([^\"]+)\"")
 _PATH_RE = re.compile(r"\S+\.py")
 _EXC_RE = re.compile(r"\b\w+(?:Error|Exception)\b")
 _FRAME_RE = re.compile(r'File "([^"]+\.py)", line (\d+), in ([A-Za-z_][A-Za-z0-9_]*)')
-_WEIGHTS = {"traceback": 3.0, "symbol": 1.5, "bm25": 1.0, "graph": 0.7}
+_WEIGHTS = {"traceback": 3.0, "symbol": 1.5, "bm25": 1.0, "graph": 0.7, "spectrum": 2.0}
 _RRF_K = 60
 
 
@@ -42,13 +42,21 @@ def localize(
         ("bm25", _bm25_candidates(provider, bug_text, max(k * 3, 10))),
         ("graph", _graph_candidates(provider, signals["identifiers"])),
     ]
+    spectrum_note = None
+    if failing_test:
+        spectrum_items, spectrum_note = _spectrum_candidates(str(index.repo_root), failing_test, max(k * 3, 10))
+        if spectrum_items:
+            ranked_lists.append(("spectrum", spectrum_items))
     suspects = _fuse(ranked_lists, k)
+    note = "deterministic ranking; agent should rerank with reasoning"
+    if spectrum_note:
+        note = f"{note}; {spectrum_note}"
     return {
         "suspects": suspects,
         "k": k,
         "signals": signals,
         "failing_test": failing_test,
-        "note": "deterministic ranking; agent should rerank with reasoning",
+        "note": note,
     }
 
 
@@ -163,6 +171,25 @@ def _graph_candidates(provider: ContextProvider, identifiers: list[str]) -> list
                     }
                 )
     return out
+
+
+def _spectrum_candidates(repo: str, failing_test: str, k: int) -> tuple[list[dict], str | None]:
+    try:
+        from axon.tools.spectrum import spectrum_localize
+
+        result = spectrum_localize(repo, [failing_test], top=k)
+    except Exception as exc:
+        return [], f"spectrum unavailable ({type(exc).__name__})"
+    if result.get("degraded"):
+        return [], result.get("note", "spectrum unavailable")
+    return [
+        {
+            "file": item["file"],
+            "line": int(item.get("line", 1)),
+            "evidence": "spectrum ochiai",
+        }
+        for item in result.get("suspects", [])
+    ], result.get("note")
 
 
 def _fuse(ranked_lists: list[tuple[str, list[dict]]], k: int) -> list[dict]:
