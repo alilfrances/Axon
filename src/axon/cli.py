@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -18,6 +19,8 @@ def main(argv: list[str] | None = None) -> int:
     index_cmd = sub.add_parser("index")
     index_cmd.add_argument("path")
     sub.add_parser("doctor")
+    gc_cmd = sub.add_parser("gc", help="List or prune central data dirs whose repo is gone")
+    gc_cmd.add_argument("--prune", action="store_true", help="Delete orphaned data dirs")
     args = parser.parse_args(argv)
 
     if args.cmd == "serve":
@@ -31,6 +34,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "doctor":
         doctor()
+        return 0
+    if args.cmd == "gc":
+        from axon.store import gc_data_dirs
+
+        print(json.dumps(gc_data_dirs(prune=args.prune), indent=2))
         return 0
     return 2
 

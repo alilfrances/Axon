@@ -11,6 +11,7 @@ from pathlib import Path
 
 from axon.index import RepoIndex
 from axon.sandbox import ensure_venv, run_in_sandbox
+from axon.store import default_venv_dir
 
 
 def spectrum_localize(
@@ -93,7 +94,7 @@ def _interesting(file: str) -> bool:
 
 
 def _python_with_pytest(repo: Path) -> Path:
-    python = ensure_venv(repo, repo / ".axon" / "venv")
+    python = ensure_venv(repo, default_venv_dir(repo))
     proc = subprocess.run([str(python), "-c", "import pytest"], capture_output=True, text=True)
     if proc.returncode == 0:
         return python

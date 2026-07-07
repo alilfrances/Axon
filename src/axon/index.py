@@ -1,6 +1,8 @@
-"""Repo index: symbols + call/import edges in SQLite (.axon/index.db).
+"""Repo index: symbols + call/import edges in SQLite.
 
-Incremental: files re-parsed only when mtime/size changes. No daemon.
+Stored centrally under ~/.axon/data/<repo-path-hash>/index.db (legacy
+in-repo .axon/index.db still honored). Incremental: files re-parsed only
+when mtime/size changes. No daemon.
 """
 
 from __future__ import annotations
@@ -9,6 +11,7 @@ import sqlite3
 from pathlib import Path
 
 from .parsing import FileFacts, Parser, PythonAstParser, Symbol, iter_source_files
+from .store import default_db_path, write_repo_meta
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files(
@@ -29,8 +32,9 @@ class RepoIndex:
     def __init__(self, repo_root: Path, parser: Parser | None = None):
         self.repo_root = Path(repo_root).resolve()
         self.parser = parser or PythonAstParser()
-        self.db_path = self.repo_root / ".axon" / "index.db"
-        self.db_path.parent.mkdir(exist_ok=True)
+        self.db_path = default_db_path(self.repo_root)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        write_repo_meta(self.db_path, self.repo_root)
         self.conn = sqlite3.connect(self.db_path)
         self.conn.executescript(_SCHEMA)
 

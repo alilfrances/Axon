@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from axon.sandbox import ensure_venv, run_in_sandbox
+from axon.store import default_venv_dir
 
 _SUMMARY_RE = re.compile(r"(?P<count>\d+)\s+(?P<kind>failed|passed|error|errors)")
 _FAIL_RE = re.compile(r"^(FAILED|ERROR)\s+(?P<test>\S+)\s+-\s+(?P<msg>.*)$")
@@ -14,7 +15,7 @@ _FAIL_RE = re.compile(r"^(FAILED|ERROR)\s+(?P<test>\S+)\s+-\s+(?P<msg>.*)$")
 
 def run_test_suite(repo: Path, test_target: str | None = None, timeout_s: int = 120) -> dict:
     repo = Path(repo).resolve()
-    python = ensure_venv(repo, repo / ".axon" / "venv")
+    python = ensure_venv(repo, default_venv_dir(repo))
     if not _has_pytest(python, repo):
         python = Path(sys.executable)
     cmd = [str(python), "-m", "pytest", "-q", "--tb=line"]

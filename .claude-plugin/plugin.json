@@ -1,7 +1,7 @@
 {
   "name": "axon",
   "displayName": "Axon",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Root-cause debugging & vulnerability MCP server: localize bugs, verify fixes (FAIL→PASS), triage security findings with adversarial refutation.",
   "author": { "name": "AlilKuizon" },
   "license": "MIT",

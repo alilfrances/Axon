@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from axon.sandbox import ensure_venv, run_in_sandbox
+from axon.store import default_venv_dir
 
 
 def inspect_test(repo: str, test_target: str, timeout: int = 120) -> dict:
@@ -36,7 +37,7 @@ def inspect_test(repo: str, test_target: str, timeout: int = 120) -> dict:
 
 
 def _python_with_pytest(root: Path) -> Path:
-    python = ensure_venv(root, root / ".axon" / "venv")
+    python = ensure_venv(root, default_venv_dir(root))
     proc = subprocess.run([str(python), "-c", "import pytest"], capture_output=True, text=True)
     if proc.returncode == 0:
         return python

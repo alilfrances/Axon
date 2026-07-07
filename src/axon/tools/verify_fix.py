@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from axon.sandbox import ensure_venv, run_in_sandbox
+from axon.store import default_venv_dir
 from axon.tools.run_tests import _parse_result
 
 
@@ -86,7 +87,7 @@ def _run_pytest(repo: Path, target: str | None, timeout: int) -> dict:
 
 
 def _python_with_pytest(repo: Path) -> Path:
-    python = ensure_venv(repo, repo / ".axon" / "venv")
+    python = ensure_venv(repo, default_venv_dir(repo))
     proc = subprocess.run([str(python), "-c", "import pytest"], capture_output=True, text=True)
     if proc.returncode == 0:
         return python
