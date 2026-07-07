@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from collections import Counter
 from dataclasses import dataclass, field
 
@@ -18,7 +19,15 @@ _FENCED_CODE_RE = re.compile(r"```(?:[^\n`]*)\n?(.*?)```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 _EXC_RE = re.compile(r"\b\w+(?:Error|Exception)\b")
 _FRAME_RE = re.compile(r'File "([^"]+\.py)", line (\d+), in ([A-Za-z_][A-Za-z0-9_]*)')
-_WEIGHTS = {"traceback": 3.0, "path": 2.5, "spectrum": 2.0, "symbol": 1.5, "bm25": 1.0, "graph": 0.7}
+_WEIGHTS = {
+    "traceback": 3.0,
+    "path": 2.5,
+    "spectrum": 2.0,
+    "symbol": 1.5,
+    "bm25": 1.0,
+    "graph": 0.7,
+    "recency": 0.5,
+}
 _RRF_K = 60
 _STOPWORDS = {
     "a", "about", "above", "after", "again", "against", "all", "also", "am", "an",
@@ -59,6 +68,7 @@ def localize(
         ("symbol", _symbol_candidates(index, signals["strong_identifiers"])),
         ("bm25", _bm25_candidates(provider, bug_text, signals, max(k * 3, 10))),
         ("graph", _graph_candidates(provider, signals["strong_identifiers"])),
+        ("recency", _recency_candidates(str(index.repo_root))),
     ]
     spectrum_note = None
     if failing_test:
@@ -328,6 +338,32 @@ def _spectrum_candidates(repo: str, failing_test: str, k: int) -> tuple[list[dic
         }
         for item in result.get("suspects", [])
     ], result.get("note")
+
+
+def _recency_candidates(repo_root: str, limit: int = 20) -> list[dict]:
+    try:
+        proc = subprocess.run(
+            ["git", "log", "--name-only", "--pretty=format:", "-n", "50"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if proc.returncode != 0:
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+    for name in proc.stdout.splitlines():
+        name = name.strip()
+        if not name.endswith(".py") or name in seen:
+            continue
+        seen.add(name)
+        out.append({"file": name, "line": 1, "evidence": "recently changed (git log)"})
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _fuse(ranked_lists: list[tuple[str, list[dict]]], k: int) -> list[dict]:
