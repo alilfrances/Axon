@@ -47,7 +47,7 @@ def shallow_fetch(repo: str, sha: str, dest: Path) -> bool:
         return False
 
 
-def eval_instance(inst: dict, k: int) -> bool | None:
+def eval_instance(inst: dict, ks: list[int]) -> dict[int, bool] | None:
     gold = gold_files(inst["patch"])
     gold_py = {f for f in gold if f.endswith(".py")}
     if not gold_py:
@@ -60,9 +60,9 @@ def eval_instance(inst: dict, k: int) -> bool | None:
         provider.index(repo_dir)
         index = RepoIndex(repo_dir)
         index.refresh()
-        result = localize(provider, index, inst["problem_statement"], k=k)
-        suspects = {s["file"] for s in result["suspects"][:k]}
-        return bool(gold_py & suspects)
+        result = localize(provider, index, inst["problem_statement"], k=max(ks))
+        ranked = [s["file"] for s in result["suspects"]]
+        return {k: bool(gold_py & set(ranked[:k])) for k in ks}
 
 
 def main() -> None:
@@ -70,7 +70,7 @@ def main() -> None:
     ap.add_argument("--repos", nargs="+", required=True,
                     help="allowlist of repos to include (keep them small)")
     ap.add_argument("--max", type=int, default=12)
-    ap.add_argument("--k", type=int, default=3)
+    ap.add_argument("--k", type=int, nargs="+", default=[3])
     args = ap.parse_args()
 
     from datasets import load_dataset
@@ -79,24 +79,25 @@ def main() -> None:
     rows.sort(key=lambda r: r["instance_id"])  # deterministic
     rows = rows[: args.max]
 
-    hits = misses = skipped = 0
-    print(f"Running File@{args.k} on {len(rows)} instances from {args.repos}\n")
+    ks = sorted(set(args.k))
+    hits = {k: 0 for k in ks}
+    scored = skipped = 0
+    print(f"Running File@{ks} on {len(rows)} instances from {args.repos}\n")
     for r in rows:
-        outcome = eval_instance(r, args.k)
+        outcome = eval_instance(r, ks)
         if outcome is None:
             skipped += 1
             tag = "SKIP"
-        elif outcome:
-            hits += 1
-            tag = "HIT "
         else:
-            misses += 1
-            tag = "MISS"
+            scored += 1
+            for k in ks:
+                hits[k] += outcome[k]
+            tag = " ".join(f"@{k}:{'HIT' if outcome[k] else 'MISS'}" for k in ks)
         print(f"  [{tag}] {r['instance_id']}")
 
-    scored = hits + misses
-    rate = (hits / scored * 100) if scored else 0.0
-    print(f"\nFile@{args.k}: {hits}/{scored} = {rate:.0f}%  (skipped {skipped})")
+    for k in ks:
+        rate = (hits[k] / scored * 100) if scored else 0.0
+        print(f"\nFile@{k}: {hits[k]}/{scored} = {rate:.0f}%  (skipped {skipped})")
     print(f"NOTE: partial slice ({', '.join(args.repos)}, n={scored}) — NOT the frozen 60.")
 
 

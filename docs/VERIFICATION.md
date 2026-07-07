@@ -49,32 +49,37 @@ which prove the machinery works. They are smoke signals, not benchmark numbers.
 ## Real benchmark — Target A measured (no LLM, no Docker)
 
 `eval/run_localize_eval.py` runs deterministic File@k on **real SWE-bench
-Verified repos** (shallow-fetched at base_commit, indexed, localized). Two
-slices were run — and they tell opposite stories, which is the point:
+Verified repos** (shallow-fetched at base_commit, indexed, localized).
+
+**History.** The first measurement exposed a real weakness: File@10 on
+django/sympy was **25% (2/8)** — the gold file was absent from the candidate
+set 75% of the time. Root causes: BM25 over raw natural-language issue text
+(rare prose words in comments get high IDF), symbol/graph sources flooded by
+subword-split identifiers on repos with thousands of symbols, no path-based
+retrieval, and an RRF fuse with an unbounded evidence-count bonus that let
+weak-volume sources drown strong single signals.
+
+**The v0.2 retrieval upgrade** (deterministic, stdlib-only, no LLM): strong-
+identifier extraction (CamelCase/snake_case/code-span/dotted-path/quoted, with
+stopword filter), a new `path` candidate source (dotted-module suffix matching
++ rarity-weighted path-component scoring), rare-first capped symbol/graph
+sources, a signal-weighted BM25 query, and standard weighted RRF (sum of
+weight/(60+best_rank) per source, evidence capped). Re-measured on the same
+slices:
 
 | Slice | File@3 | File@10 |
 |---|---|---|
-| Lightweight (requests/flask/seaborn), n=11 | 55% (6/11) | **91%** (10/11) |
-| Large (django/sympy), n=8 | — | **25%** (2/8) |
+| Lightweight (requests/flask/seaborn), n=11 | 55% (6/11) | 82% (9/11), was 91% |
+| Large (django/sympy), n=8 | **50%** (4/8), was unmeasured | **75%** (6/8), was **25%** |
 
-**The honest finding — retrieval collapses on large repos.** The 91% recall@10
-on small repos was an artifact: those packages have ~20–40 Python files, so
-top-10 covers a third of the repo — "gold file in top-10" is nearly free. On
-django/sympy (which are 306 of the 500 SWE-bench instances) recall@10 drops to
-25%. The gold file is **not even in Axon's candidate set** 75% of the time.
+Large-repo recall@10 went 25% → 75% (3×); the retrieval-collapse weakness is
+closed on this slice. Cost: one small-repo instance dropped out of top-10
+(91% → 82%, n=11 — within one-instance noise but reported honestly).
 
-Consequence: the earlier claim "an LLM reranker closes the gap" is **false for
-large repos** — there is nothing to rerank if the file was never retrieved. The
-real bottleneck on large codebases is **candidate retrieval**, not ranking.
-Likely cause: BM25 over a natural-language issue description vs. code
-identifiers doesn't discriminate across thousands of files; django issues often
-lack tracebacks (Axon's strongest signal). This is an **open weakness**, not a
-"plausible with rerank" — improving large-repo retrieval (better signal
-extraction, embeddings, path/test heuristics) is the real next work.
-
-The ≥90% File@3 headline is therefore **not supported by current evidence** and
-must not be asserted. What is earned: a working, honest measurement harness and
-a clear, quantified weakness to fix.
+Caveats that still hold: these are partial slices (n=8 and n=11), NOT the
+frozen 60; File@3 without an LLM reranker remains below the ≥90% gate; the
+≥90% File@3 headline is still a claim to be **earned** on the frozen set with
+the agent reranking layer, not asserted from these numbers.
 
 ## NOT yet done (honest gaps)
 
