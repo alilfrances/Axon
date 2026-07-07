@@ -1,0 +1,14 @@
+{
+  "name": "axon",
+  "displayName": "Axon",
+  "version": "0.2.0",
+  "description": "Root-cause debugging & vulnerability MCP server: localize bugs, verify fixes (FAIL→PASS), triage security findings with adversarial refutation.",
+  "author": { "name": "AlilKuizon" },
+  "license": "MIT",
+  "keywords": ["debugging", "localization", "security", "mcp", "verification"],
+  "mcpServers": {
+    "axon": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/serve.sh"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "axon",
+  "owner": { "name": "AlilKuizon" },
+  "metadata": {
+    "description": "Marketplace for the Axon root-cause debugging & vulnerability MCP plugin.",
+    "version": "0.2.0"
+  },
+  "plugins": [
+    {
+      "name": "axon",
+      "source": "./",
+      "description": "Root-cause debugging & vulnerability MCP server for AI coding agents.",
+      "version": "0.2.0"
+    }
+  ]
+}

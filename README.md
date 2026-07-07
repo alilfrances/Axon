@@ -49,6 +49,21 @@ axon serve            # start the MCP server (stdio)
 Point any MCP host (Claude Code, etc.) at `axon serve`. Runs with no Cortex,
 no GPU, no model download.
 
+## Install as a Claude Code plugin
+
+```bash
+/plugin marketplace add <path-or-git-url-of-this-repo>
+/plugin install axon@axon
+```
+
+The first server start bootstraps a private plugin venv and needs `python3`.
+Semgrep-backed SAST is optional: install it with `pip install 'axon-debug[security]'`
+into the plugin venv, or have `semgrep` available on `PATH`.
+
+Versioning: Axon uses semver; bump `pyproject.toml`,
+`.claude-plugin/plugin.json`, and `.claude-plugin/marketplace.json` together
+on release.
+
 ## Status
 
 **v0 built and verified** — 35 tests pass, 6 phased commits. Core machinery
