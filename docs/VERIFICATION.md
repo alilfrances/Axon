@@ -76,6 +76,10 @@ Large-repo recall@10 went 25% → 75% (3×); the retrieval-collapse weakness is
 closed on this slice. Cost: one small-repo instance dropped out of top-10
 (91% → 82%, n=11 — within one-instance noise but reported honestly).
 
+Independent re-run 2026-07-07 reproduced the large slice exactly (File@3
+4/8 = 50%, File@10 6/8 = 75%, 0 skipped; misses: django-10914, django-11087)
+— pipeline is deterministic as claimed.
+
 Caveats that still hold: these are partial slices (n=8 and n=11), NOT the
 frozen 60; File@3 without an LLM reranker remains below the ≥90% gate; the
 ≥90% File@3 headline is still a claim to be **earned** on the frozen set with

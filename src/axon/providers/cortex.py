@@ -1,10 +1,17 @@
-"""Defensive Cortex CLI adapter."""
+"""Defensive Cortex CLI adapter.
+
+Cortex's `query`/`index` subcommands were replaced by `ingest`, `bundle`,
+and `graph export` (see cortex CHANGELOG). This adapter shells out to the
+current CLI surface only -- no MCP client, no import of the `cortex`
+package -- so it stays isolated if Cortex's CLI changes again.
+"""
 
 from __future__ import annotations
 
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from .base import GraphContext, SearchHit
@@ -34,7 +41,7 @@ class CortexProvider:
         self.repo = Path(repo).resolve()
         try:
             proc = subprocess.run(
-                ["cortex", "index", str(self.repo)],
+                ["cortex", "ingest", str(self.repo)],
                 text=True,
                 capture_output=True,
                 timeout=30,
@@ -51,15 +58,9 @@ class CortexProvider:
     def graph_context(self, symbol: str) -> GraphContext:
         if not self._using_fallback:
             try:
-                proc = subprocess.run(
-                    ["cortex", "query", "graph_context", symbol, "--repo", str(self.repo), "--json"],
-                    text=True,
-                    capture_output=True,
-                    timeout=10,
-                )
-                if proc.returncode == 0:
-                    data = json.loads(proc.stdout)
-                    return GraphContext(backend=self.backend, degraded=False, **data)
+                ctx = self._graph_context_via_export(symbol)
+                if ctx is not None:
+                    return ctx
             except Exception:
                 self._using_fallback = True
         ctx = self._fallback.graph_context(symbol)
@@ -73,26 +74,74 @@ class CortexProvider:
             backend="cortex-fallback-builtin",
         )
 
+    def _graph_context_via_export(self, symbol: str) -> GraphContext | None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "graph.json"
+            proc = subprocess.run(
+                ["cortex", "graph", "export", str(self.repo), "--format", "json", "--out", str(out_path)],
+                text=True,
+                capture_output=True,
+                timeout=30,
+            )
+            if proc.returncode != 0 or not out_path.exists():
+                return None
+            data = json.loads(out_path.read_text())
+
+        nodes = {n["node_id"]: n for n in data.get("nodes", [])}
+        matches = [n for n in nodes.values() if n.get("label") == symbol]
+        if not matches:
+            return None
+        matches.sort(key=lambda n: n.get("granularity") != "symbol")
+
+        definitions = [
+            {"file": n["source_ref"], "line": n.get("span_start") or n.get("metadata", {}).get("lineno", 1)}
+            for n in matches
+        ]
+        target_ids = {n["node_id"] for n in matches}
+
+        callers, callees, blast_radius = [], [], set()
+        for edge in data.get("edges", []):
+            if edge["target"] in target_ids:
+                caller = nodes.get(edge["source"])
+                if caller:
+                    callers.append(caller.get("label", edge["source"]))
+                    blast_radius.add(caller.get("source_ref", edge["source"]))
+            if edge["source"] in target_ids:
+                callee = nodes.get(edge["target"])
+                if callee:
+                    callees.append(callee.get("label", edge["target"]))
+                    blast_radius.add(callee.get("source_ref", edge["target"]))
+
+        return GraphContext(
+            symbol=symbol,
+            definitions=definitions,
+            callers=callers,
+            callees=callees,
+            blast_radius=sorted(blast_radius),
+            degraded=False,
+            backend=self.backend,
+        )
+
     def search(self, query: str, k: int = 10) -> list[SearchHit]:
         if not self._using_fallback:
             try:
                 proc = subprocess.run(
-                    ["cortex", "query", "search", query, "--repo", str(self.repo), "--json"],
+                    ["cortex", "bundle", str(self.repo), "--task", query, "--format", "json", "--budget", "4000"],
                     text=True,
                     capture_output=True,
-                    timeout=10,
+                    timeout=15,
                 )
                 if proc.returncode == 0:
                     data = json.loads(proc.stdout)
                     return [
                         SearchHit(
-                            file=item["file"],
-                            line=int(item.get("line", 1)),
+                            file=item.get("path", item.get("title", "")),
+                            line=item.get("metadata", {}).get("lineno", 1),
                             score=float(item.get("score", 0.0)),
-                            snippet=item.get("snippet", ""),
+                            snippet=item.get("content", "")[:200],
                             backend=self.backend,
                         )
-                        for item in data[:k]
+                        for item in data.get("items", [])[:k]
                     ]
             except Exception:
                 self._using_fallback = True
