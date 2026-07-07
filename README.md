@@ -66,7 +66,7 @@ on release.
 
 ## Status
 
-**v0 built and verified** — 35 tests pass, 6 phased commits. Core machinery
+**v0.3 built and verified** — 60 tests pass. Core machinery
 (providers, localize, verify-fix loop, security triage) works and composes
 end-to-end. The frozen benchmark run (SWE-bench + PrimeVul) is the next
 milestone — see [`docs/VERIFICATION.md`](docs/VERIFICATION.md) for exactly
@@ -75,7 +75,10 @@ the design.
 
 **v0.3 debugging upgrades** — function-level localization, runtime-state
 inspection, patch ranking, and one-call investigate bundles add deterministic
-evidence for root-cause debugging workflows.
+evidence for root-cause debugging workflows. Measured on the django/sympy
+SWE-bench Verified slice (n=8, no LLM, no regression from v0.2): File@3 50%,
+File@10 75%, Function@10 12% (new deterministic-only baseline — the calling
+agent is the reranking layer).
 
 ## Security
 
