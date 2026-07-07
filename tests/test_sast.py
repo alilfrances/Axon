@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 import shutil
 
+import pytest
+
 from axon import server
-from axon.tools.sast import sast_scan
+from axon.tools.sast import _semgrep_binary, sast_scan
 
 
 def test_sast_scan_offline_rules_find_distinct_cwes(vuln_repo):
@@ -24,6 +27,24 @@ def test_sast_binary_fact_is_real_or_reported(vuln_repo):
     if shutil.which("semgrep"):
         assert result["semgrep_available"] is True
     assert result["findings"]
+
+
+def test_bundled_semgrep_rules_do_not_flag_axon_non_sql_fstrings():
+    rule_text = (Path(__file__).resolve().parents[1] / "src" / "axon" / "rules" / "axon_python.yml").read_text(
+        encoding="utf-8"
+    )
+    assert 'pattern: $SQL = f"..."' not in rule_text
+    assert "select|insert|update|delete|drop|alter|create" in rule_text
+
+    if not _semgrep_binary():
+        pytest.skip("semgrep is not installed")
+
+    repo = Path(__file__).resolve().parents[1]
+    result = sast_scan(str(repo), timeout=120)
+
+    if result["backend"] != "semgrep":
+        pytest.skip(f"semgrep unavailable: {result['semgrep_error']}")
+    assert [f for f in result["findings"] if f["cwe"] == "CWE-89"] == []
 
 
 def test_server_registers_sast_refute_triage():

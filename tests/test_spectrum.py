@@ -57,3 +57,24 @@ def test_localize_uses_spectrum_booster(monkeypatch, fixture_repo):
         and any("spectrum ochiai" in evidence for evidence in item["evidence"])
         for item in result["suspects"]
     )
+
+
+def test_trace_runner_reports_exit_code(fixture_repo):
+    from axon.tools.spectrum import _trace_test
+
+    root = fixture_repo()
+    hits, code = _trace_test(root, "tests/test_calc.py::test_add")
+    assert code == 0
+    assert hits
+
+
+def test_spectrum_auto_passing_and_functions(fixture_repo):
+    from axon.tools.spectrum import spectrum_localize
+
+    root = fixture_repo()
+    result = spectrum_localize(str(root), ["tests/test_calc.py::test_divide_zero_returns_none"])
+    assert not result["degraded"]
+    assert "tests/test_calc.py::test_add" in result["passing_used"]
+    quals = [f["qualname"] for f in result["functions"]]
+    assert "divide" in quals
+    assert "add" not in quals[:1]
