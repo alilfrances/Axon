@@ -17,12 +17,14 @@ def fixture_repo(tmp_path: Path):
             "    return a + b\n\n"
             "def divide(a, b):\n"
             "    return a / b\n\n"
+            "def safe_divide(a, b):\n"
+            "    return divide(a, b)\n\n"
             "def use_divide(value):\n"
             "    return divide(value, 2)\n",
             encoding="utf-8",
         )
         (root / "calc" / "api.py").write_text(
-            "from calc.core import divide\n\n"
+            "from calc.core import divide, safe_divide\n\n"
             "def ratio(a, b):\n"
             "    return divide(a, b)\n",
             encoding="utf-8",
