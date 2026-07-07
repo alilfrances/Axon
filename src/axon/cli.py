@@ -40,7 +40,8 @@ def doctor() -> None:
     print(f"python: {sys.version.split()[0]}")
     print(f"rg: {_availability('rg')}")
     print(f"cortex: {'available' if CortexProvider.available() else 'missing'}")
-    print(f"semgrep: {_availability('semgrep')}")
+    from .tools.sast import _semgrep_binary
+    print(f"semgrep: {'available' if _semgrep_binary() else 'missing'}")
     try:
         provider = select_provider(cwd)
         print(f"active_backend: {provider.backend}")

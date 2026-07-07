@@ -31,6 +31,29 @@ Research shows no agent hits "90% detect everything" universally. Axon reaches
 - Same agent tools and output shape on every rung. Accelerators only improve
   quality/speed; their absence never breaks a feature.
 
+## Tools (MCP)
+
+`axon serve` exposes 11 tools over MCP (stdio): `index`, `graph_context`,
+`search`, `localize`, `run_tests`, `repro`, `verify_fix`, `spectrum`,
+`sast_scan`, `refute`, `triage`.
+
+## Quickstart
+
+```bash
+pip install -e .      # or: uvx axon
+axon doctor           # environment + active backend
+axon index <repo>     # build/refresh the code index
+axon serve            # start the MCP server (stdio)
+```
+
+Point any MCP host (Claude Code, etc.) at `axon serve`. Runs with no Cortex,
+no GPU, no model download.
+
 ## Status
 
-Planning. See [`docs/PLAN.md`](docs/PLAN.md) — phased build with 6 stop points.
+**v0 built and verified** — 35 tests pass, 6 phased commits. Core machinery
+(providers, localize, verify-fix loop, security triage) works and composes
+end-to-end. The frozen benchmark run (SWE-bench + PrimeVul) is the next
+milestone — see [`docs/VERIFICATION.md`](docs/VERIFICATION.md) for exactly
+what is proven vs. still unmeasured, and [`docs/PLAN.md`](docs/PLAN.md) for
+the design.
