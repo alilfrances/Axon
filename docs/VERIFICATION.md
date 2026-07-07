@@ -103,6 +103,20 @@ the agent reranking layer, not asserted from these numbers.
 - **Container sandbox** is spec'd (opt-in) but v0 ships subprocess+venv only.
 - **Multi-language:** Python-only v0; parser interface ready for tree-sitter.
 
+## v0.3 measured (2026-07-07, django/sympy slice, n=8, deterministic, no LLM)
+
+Re-run after the v0.3 upgrades (recency signal, function-level suspects,
+spectrum/inspect/rank_patches/investigate):
+
+- File@3 4/8 = 50%, File@10 6/8 = 75% — identical to the v0.2 baseline, so
+  the new recency source caused no retrieval regression.
+- Function@3 1/8 = 12%, Function@10 1/8 = 12% — first Function@k measurement;
+  deterministic-only baseline (function candidates attach only where sources
+  carry real line evidence). Exact-function top-k SOTA with LLM reranking is
+  20–32%; Axon's contract keeps the calling agent as the reranking layer.
+- Misses unchanged: django-10914, django-11087 (plus 10880/10973 at k=3).
+- 60 tests pass at `eb4109b`+docs; suite runs with no network/Docker.
+
 ## How to run
 
 ```bash
@@ -110,7 +124,7 @@ pip install -e .            # or: uvx axon
 axon doctor                 # environment + active backend
 axon index <repo>           # build/refresh index
 axon serve                  # start MCP stdio server
-python -m pytest            # 35 tests, ~21s, no network/Docker
+python -m pytest            # 60 tests, no network/Docker
 ```
 
 Plug-and-play confirmed: runs with Cortex absent (Builtin backend), semgrep

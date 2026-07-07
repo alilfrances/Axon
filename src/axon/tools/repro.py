@@ -9,6 +9,7 @@ from axon.sandbox import ensure_venv
 from axon.tools.run_tests import run_test_suite
 
 _SLUG_RE = re.compile(r"[^a-z0-9_]+")
+_EXC_LINE_RE = re.compile(r"\b([A-Za-z_]\w*(?:Error|Exception))\b")
 
 
 def repro_scaffold(repo: str, bug_slug: str, test_body: str | None = None) -> dict:
@@ -27,6 +28,8 @@ def repro_scaffold(repo: str, bug_slug: str, test_body: str | None = None) -> di
         "path": str(target),
         "test_target": rel,
         "currently_fails": result["failed"] > 0 or result["errors"] > 0 or result["exit_code"] != 0,
+        "failure_kind": _classify(result),
+        "failure_excerpt": _excerpt(result),
         "test_result": result,
     }
 
@@ -55,3 +58,24 @@ def _skeleton(slug: str) -> str:
         "    # TODO: replace with a concrete reproduction.\n"
         "    pytest.fail(\"repro not implemented\")\n"
     )
+
+
+def _classify(result: dict) -> str:
+    if result.get("timed_out"):
+        return "timeout"
+    if result["exit_code"] == 0 and result["failed"] == 0 and result["errors"] == 0:
+        return "passes"
+    tail = result.get("raw_tail", "")
+    if "errors during collection" in tail or "collected 0 items" in tail:
+        return "collection-error"
+    if "AssertionError" in tail or re.search(r"^E?\s*assert\b", tail, re.MULTILINE):
+        return "assertion"
+    exc_names = [m for m in _EXC_LINE_RE.findall(tail) if m != "AssertionError"]
+    if exc_names:
+        return f"exception:{exc_names[-1]}"
+    return "unknown"
+
+
+def _excerpt(result: dict) -> str:
+    lines = [line for line in result.get("raw_tail", "").splitlines() if line.strip()]
+    return "\n".join(lines[-15:])
