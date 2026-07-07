@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import re
+import sys
 from pathlib import Path
 
 from axon.sandbox import ensure_venv, run_in_sandbox
@@ -71,7 +72,7 @@ def verify_fix(
 
 
 def _run_pytest(repo: Path, target: str | None, timeout: int) -> dict:
-    python = ensure_venv(repo, repo / ".axon" / "venv")
+    python = _python_with_pytest(repo)
     cmd = [str(python), "-m", "pytest", "-q", "--tb=line", "-p", "no:cacheprovider"]
     if target:
         cmd.append(target)
@@ -82,6 +83,14 @@ def _run_pytest(repo: Path, target: str | None, timeout: int) -> dict:
         {"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(repo)},
     )
     return _parse_result(result.stdout + result.stderr, result.exit_code, result.timed_out, result.duration_s)
+
+
+def _python_with_pytest(repo: Path) -> Path:
+    python = ensure_venv(repo, repo / ".axon" / "venv")
+    proc = subprocess.run([str(python), "-c", "import pytest"], capture_output=True, text=True)
+    if proc.returncode == 0:
+        return python
+    return Path(sys.executable)
 
 
 def _is_git_repo(repo: Path) -> bool:
