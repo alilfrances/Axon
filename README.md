@@ -72,3 +72,9 @@ end-to-end. The frozen benchmark run (SWE-bench + PrimeVul) is the next
 milestone — see [`docs/VERIFICATION.md`](docs/VERIFICATION.md) for exactly
 what is proven vs. still unmeasured, and [`docs/PLAN.md`](docs/PLAN.md) for
 the design.
+
+## Security
+
+Report vulnerabilities privately through the process in [`SECURITY.md`](SECURITY.md).
+Public repository hardening requirements are tracked in
+[`docs/GITHUB_SECURITY.md`](docs/GITHUB_SECURITY.md).
