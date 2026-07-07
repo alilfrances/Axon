@@ -17,11 +17,10 @@ rules:
     message: "CWE-89: SQL query built with string formatting"
     metadata:
       cwe: "CWE-89"
-    patterns:
-      - pattern-either:
-          - pattern: $DB.execute(f"...")
-          - pattern: $DB.execute($SQL + $X)
-          - pattern: $SQL = f"..."
+    pattern-either:
+      - pattern-regex: "(?i)\\.execute\\s*\\(\\s*f[\"'][^\"']*\\b(select|insert|update|delete|drop|alter|create)\\b"
+      - pattern: $DB.execute($SQL + $X)
+      - pattern-regex: "(?i)\\bsql\\s*=\\s*f[\"'][^\"']*\\b(select|insert|update|delete|drop|alter|create)\\b"
 
   - id: axon.python.cwe-79.html-fstring
     languages: [python]
