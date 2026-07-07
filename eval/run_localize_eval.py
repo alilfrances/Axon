@@ -97,7 +97,7 @@ def main() -> None:
     scored = hits + misses
     rate = (hits / scored * 100) if scored else 0.0
     print(f"\nFile@{args.k}: {hits}/{scored} = {rate:.0f}%  (skipped {skipped})")
-    print("NOTE: partial slice on lightweight repos — NOT the full frozen 60.")
+    print(f"NOTE: partial slice ({', '.join(args.repos)}, n={scored}) — NOT the frozen 60.")
 
 
 if __name__ == "__main__":

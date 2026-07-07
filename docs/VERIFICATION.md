@@ -49,22 +49,32 @@ which prove the machinery works. They are smoke signals, not benchmark numbers.
 ## Real benchmark — Target A measured (no LLM, no Docker)
 
 `eval/run_localize_eval.py` runs deterministic File@k on **real SWE-bench
-Verified repos** (shallow-fetched at base_commit, indexed, localized). Slice:
-11 instances from the lightweight repos (requests, flask, seaborn) — a partial
-slice, NOT the full frozen 60.
+Verified repos** (shallow-fetched at base_commit, indexed, localized). Two
+slices were run — and they tell opposite stories, which is the point:
 
-| Metric | Result | Reading |
+| Slice | File@3 | File@10 |
 |---|---|---|
-| **File@3** | **55%** (6/11) | deterministic RRF ranking, no LLM reranker |
-| **File@10** | **91%** (10/11) | the gold file IS in Axon's candidate set |
+| Lightweight (requests/flask/seaborn), n=11 | 55% (6/11) | **91%** (10/11) |
+| Large (django/sympy), n=8 | — | **25%** (2/8) |
 
-**The load-bearing finding:** retrieval recall@10 is 91% — Axon surfaces the
-right file almost always; it just doesn't always rank it top-3 without a
-reranker. That is exactly the gap the calling agent's LLM closes (and what the
-plan predicted: Axon supplies candidates + evidence, the agent reranks to
-precision). The ≥90% File@3 headline is therefore *plausible with rerank* on
-this slice — but the rerank layer needs an LLM (API budget), which this
-environment lacks, so File@3-with-rerank remains unmeasured.
+**The honest finding — retrieval collapses on large repos.** The 91% recall@10
+on small repos was an artifact: those packages have ~20–40 Python files, so
+top-10 covers a third of the repo — "gold file in top-10" is nearly free. On
+django/sympy (which are 306 of the 500 SWE-bench instances) recall@10 drops to
+25%. The gold file is **not even in Axon's candidate set** 75% of the time.
+
+Consequence: the earlier claim "an LLM reranker closes the gap" is **false for
+large repos** — there is nothing to rerank if the file was never retrieved. The
+real bottleneck on large codebases is **candidate retrieval**, not ranking.
+Likely cause: BM25 over a natural-language issue description vs. code
+identifiers doesn't discriminate across thousands of files; django issues often
+lack tracebacks (Axon's strongest signal). This is an **open weakness**, not a
+"plausible with rerank" — improving large-repo retrieval (better signal
+extraction, embeddings, path/test heuristics) is the real next work.
+
+The ≥90% File@3 headline is therefore **not supported by current evidence** and
+must not be asserted. What is earned: a working, honest measurement harness and
+a clear, quantified weakness to fix.
 
 ## NOT yet done (honest gaps)
 
