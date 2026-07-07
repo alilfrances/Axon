@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 from axon.tools import repro
 
 
-def test_repro_scaffold_writes_skeleton_red(monkeypatch, fixture_repo):
+def test_repro_scaffold_writes_skeleton_red(fixture_repo):
     repo = fixture_repo()
-    monkeypatch.setattr(repro, "ensure_venv", lambda repo, path: Path(sys.executable))
 
     result = repro.repro_scaffold(str(repo), "Divide By Zero!")
 

@@ -35,7 +35,8 @@ class FileFacts:
 class Parser(Protocol):
     extensions: tuple[str, ...]
 
-    def parse_file(self, path: Path, repo_root: Path) -> FileFacts: ...
+    def parse_file(self, path: Path, repo_root: Path) -> FileFacts:
+        pass
 
 
 class PythonAstParser:

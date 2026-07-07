@@ -30,8 +30,11 @@ class GraphContext:
 class ContextProvider(Protocol):
     backend: str
 
-    def index(self, repo: Path) -> dict: ...
+    def index(self, repo: Path) -> dict:
+        pass
 
-    def graph_context(self, symbol: str) -> GraphContext: ...
+    def graph_context(self, symbol: str) -> GraphContext:
+        pass
 
-    def search(self, query: str, k: int = 10) -> list[SearchHit]: ...
+    def search(self, query: str, k: int = 10) -> list[SearchHit]:
+        pass

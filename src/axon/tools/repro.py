@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from axon.sandbox import ensure_venv
 from axon.tools.run_tests import run_test_suite
 
 _SLUG_RE = re.compile(r"[^a-z0-9_]+")

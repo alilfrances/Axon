@@ -49,7 +49,7 @@ class CortexProvider:
             if proc.returncode == 0:
                 return self._json_or_status(proc.stdout, {"backend": self.backend, "indexed": True})
         except Exception:
-            pass
+            pass  # cortex CLI unavailable/failed; fall through to builtin backend
         out = self._fallback.index(self.repo)
         out["backend"] = "cortex-fallback-builtin"
         self._using_fallback = True
