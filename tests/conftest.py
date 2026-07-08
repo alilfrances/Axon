@@ -8,8 +8,11 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Keep central-store writes (~/.axon/data) out of the real home dir."""
+    """Keep central-store writes (~/.axon/data) out of the real home dir, and
+    keep tests from spawning a real `cortex mcp` server when cortex happens to
+    be installed (MCP-specific tests override this with a fake server)."""
     monkeypatch.setenv("AXON_DATA_DIR", str(tmp_path / "axon_data"))
+    monkeypatch.setenv("AXON_CORTEX_MCP_CMD", "off")
 
 
 def _write_calc_repo(root: Path) -> None:
