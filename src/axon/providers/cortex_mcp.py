@@ -113,7 +113,8 @@ class CortexMcpClient:
         except Exception:
             try:
                 proc.kill()
-            except Exception:
+            except (ProcessLookupError, OSError):
+                # Best-effort shutdown: process may already have exited.
                 pass
 
     # -- transport -------------------------------------------------------------
