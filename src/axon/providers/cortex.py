@@ -250,16 +250,53 @@ class CortexProvider:
                 if file:
                     blast.add(file)
 
+        node_ids = [n["node_id"] for n in matches if n.get("node_id")]
+        callees = self._callees_via_mcp(client, symbol, node_ids)
+
         return GraphContext(
             symbol=symbol,
             definitions=definitions,
             callers=callers,
-            callees=[],
+            callees=callees,
             blast_radius=sorted(blast),
             degraded=False,
             backend=self.mcp_backend,
-            note="callees not reported by the cortex MCP backend",
         )
+
+    def _callees_via_mcp(self, client: CortexMcpClient, symbol: str, node_ids: list[str]) -> list[str]:
+        """Outgoing `calls` edges for the symbol via cortex_relations.
+
+        Scopes each query to a definition's node id (substring-matched by the
+        server) and keeps only edges whose source endpoint is exactly this
+        symbol, so sibling functions with overlapping names don't leak in.
+        Empty when Cortex predates the `calls` relation -- callees just stay
+        unreported rather than erroring."""
+        callees: set[str] = set()
+        for node_id in node_ids:
+            try:
+                payload = self._mcp_call(
+                    client,
+                    "cortex_relations",
+                    {
+                        "repo_path": str(self.repo),
+                        "relation": "calls",
+                        "symbol": node_id,
+                        "direction": "out",
+                        "limit": 200,
+                    },
+                    _timeout("graph"),
+                )
+            except CortexMcpToolError:
+                continue  # older Cortex may reject the relation enum value
+            for item in payload.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                if _endpoint_label(item.get("source", "")) != symbol:
+                    continue
+                callee = _endpoint_label(item.get("target", ""))
+                if callee:
+                    callees.add(callee)
+        return sorted(callees)
 
     def _graph_context_via_export(self, symbol: str) -> GraphContext | None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -383,3 +420,12 @@ def _split_ref(ref: str) -> tuple[str, int]:
     if sep and line.isdigit():
         return path, int(line)
     return ref, 1
+
+
+def _endpoint_label(endpoint: str) -> str:
+    """Bare label from a cortex_relations endpoint. The server formats resolved
+    endpoints as "label @ source_ref:line" and unresolved ones as the bare
+    name, so the label is everything before the first " @ "."""
+    if not isinstance(endpoint, str):
+        return ""
+    return endpoint.split(" @ ", 1)[0].strip()

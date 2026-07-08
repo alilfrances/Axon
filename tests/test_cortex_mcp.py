@@ -46,6 +46,9 @@ def test_mcp_graph_context_maps_symbols_and_references(provider):
     # The definition site itself must not be listed as a caller.
     assert not any(c["file"] == "calc/core.py" and c["line"] == 4 for c in ctx.callers)
     assert {"calc/api.py", "calc/core.py", "README.md"} <= set(ctx.blast_radius)
+    # callees come from `calls` edges; a sibling function's edge whose source
+    # is not this symbol must be filtered out.
+    assert ctx.callees == ["abs"]
 
 
 def test_mcp_graph_context_unknown_symbol_falls_back_with_note(provider):

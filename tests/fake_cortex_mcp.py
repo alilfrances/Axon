@@ -18,7 +18,8 @@ import sys
 STATE = {"has_db": os.environ.get("FAKE_CORTEX_MISSING_DB") != "1"}
 
 TOOL_NAMES = [] if os.environ.get("FAKE_CORTEX_NO_TOOLS") == "1" else [
-    "cortex_query", "cortex_search_symbols", "cortex_references", "cortex_refresh",
+    "cortex_query", "cortex_search_symbols", "cortex_references",
+    "cortex_relations", "cortex_refresh",
 ]
 
 
@@ -65,6 +66,17 @@ def _call(name, args):
             "truncated": False,
             "returned_count": 3,
         })
+    if name == "cortex_relations":
+        # Emulate `calls` edges: use_divide (@ core.py:7) calls divide; the
+        # queried symbol here is divide's own node, whose only callee is `abs`.
+        items = []
+        if args.get("relation") == "calls" and "divide" in str(args.get("symbol", "")):
+            items = [
+                {"relation": "calls", "source": "divide @ calc/core.py:4", "target": "abs"},
+                # A sibling edge that must be filtered out by exact-source match:
+                {"relation": "calls", "source": "use_divide @ calc/core.py:7", "target": "divide"},
+            ]
+        return _content({"items": items, "truncated": False, "returned_count": len(items)})
     return _content({"error": "unknown_tool", "message": name}, is_error=True)
 
 
