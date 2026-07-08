@@ -24,10 +24,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "serve":
-        from axon import server
+        from axon import mcp_stdio
 
-        server.main()
-        return 0
+        return mcp_stdio.main()
     if args.cmd == "index":
         provider = select_provider(Path(args.path))
         print(provider.index(Path(args.path)))

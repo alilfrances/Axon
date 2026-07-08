@@ -22,13 +22,12 @@ classifiers = [
     "Topic :: Security",
     "Topic :: Software Development :: Debuggers",
 ]
-dependencies = [
-    "mcp>=1.2",
-]
+dependencies = []
 
 [project.optional-dependencies]
+fastmcp = ["mcp>=1.2"]
 security = ["semgrep>=1.90"]
-dev = ["pytest>=8"]
+dev = ["mcp>=1.2", "pytest>=8"]
 
 [project.scripts]
 axon = "axon.cli:main"
@@ -42,3 +41,4 @@ axon = ["rules/*.yml"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+pythonpath = ["src"]

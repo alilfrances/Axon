@@ -24,11 +24,14 @@ def test_codex_plugin_manifest_exposes_axon_mcp_server():
     assert mcp["mcpServers"]["axon"]["args"][0].endswith(".claude-plugin/serve.sh")
 
 
-def test_plugin_launcher_uses_writable_cache_venv():
+def test_plugin_launcher_uses_dependency_free_stdio_adapter():
     script = (ROOT / ".claude-plugin/serve.sh").read_text(encoding="utf-8")
 
-    assert 'AXON_PLUGIN_VENV' in script
-    assert 'CACHE_ROOT="${XDG_CACHE_HOME:-${TMPDIR:-/tmp}}"' in script
+    assert 'pip install' not in script
+    assert 'AXON_PLUGIN_VENV' not in script
+    assert 'PYTHONPATH="$ROOT/src"' in script
+    assert 'exec "$PYTHON" -S -m axon.mcp_stdio' in script
+    assert '--system-site-packages' not in script
     assert 'VENV="$ROOT/.venv-plugin"' not in script
 
 
