@@ -9,13 +9,37 @@ package -- so it stays isolated if Cortex's CLI changes again.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
-from .base import GraphContext, SearchHit
+from .base import GraphContext, SearchHit, dedupe_hits
 from .builtin import BuiltinProvider
+
+# Default per-call budgets (seconds). Cortex's first `ingest` of a large repo
+# can take minutes, so these are generous and overridable via the environment
+# (AXON_CORTEX_INGEST_TIMEOUT / _BUNDLE_TIMEOUT / _GRAPH_TIMEOUT). Too-tight
+# budgets were the root cause of silent builtin fallback on big repos.
+_DEFAULT_TIMEOUTS = {"ingest": 120, "bundle": 30, "graph": 60}
+
+
+def _timeout(kind: str) -> int:
+    raw = os.environ.get(f"AXON_CORTEX_{kind.upper()}_TIMEOUT")
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            pass
+    return _DEFAULT_TIMEOUTS[kind]
+
+
+def _warn_fallback(reason: str | None) -> None:
+    if reason:
+        print(f"Axon: cortex unavailable, using builtin fallback ({reason})",
+              file=sys.stderr, flush=True)
 
 
 class CortexProvider:
@@ -25,6 +49,9 @@ class CortexProvider:
         self.repo = Path(repo).resolve()
         self._fallback = BuiltinProvider(self.repo)
         self._using_fallback = not self.available()
+        self._fallback_reason: str | None = (
+            "cortex CLI not found on PATH" if self._using_fallback else None
+        )
 
     @classmethod
     def available(cls) -> bool:
@@ -40,20 +67,34 @@ class CortexProvider:
     def index(self, repo: Path) -> dict:
         self.repo = Path(repo).resolve()
         fallback_stats = self._fallback.index(self.repo)
-        try:
-            proc = subprocess.run(
-                ["cortex", "ingest", str(self.repo)],
-                text=True,
-                capture_output=True,
-                timeout=30,
-            )
-            if proc.returncode == 0:
-                return self._json_or_status(proc.stdout, {"backend": self.backend, "indexed": True})
-        except Exception:
-            pass  # cortex CLI unavailable/failed; fall through to builtin backend
+        reason = self._fallback_reason
+        if not self._using_fallback:
+            reason = None
+            budget = _timeout("ingest")
+            try:
+                proc = subprocess.run(
+                    ["cortex", "ingest", str(self.repo)],
+                    text=True,
+                    capture_output=True,
+                    timeout=budget,
+                )
+                if proc.returncode == 0:
+                    return self._json_or_status(proc.stdout, {"backend": self.backend, "indexed": True})
+                stderr = (getattr(proc, "stderr", "") or "").strip()
+                reason = f"cortex ingest exited {proc.returncode}" + (f": {stderr[:200]}" if stderr else "")
+            except subprocess.TimeoutExpired:
+                reason = (
+                    f"cortex ingest timed out after {budget}s "
+                    "(raise AXON_CORTEX_INGEST_TIMEOUT for large repos)"
+                )
+            except Exception as exc:
+                reason = f"cortex ingest failed: {type(exc).__name__}: {exc}"
         out = fallback_stats
         out["backend"] = "cortex-fallback-builtin"
+        out["fallback_reason"] = reason
         self._using_fallback = True
+        self._fallback_reason = reason
+        _warn_fallback(reason)
         return out
 
     def graph_context(self, symbol: str) -> GraphContext:
@@ -62,8 +103,10 @@ class CortexProvider:
                 ctx = self._graph_context_via_export(symbol)
                 if ctx is not None:
                     return ctx
-            except Exception:
+            except Exception as exc:
                 self._using_fallback = True
+                self._fallback_reason = f"cortex graph export failed: {type(exc).__name__}"
+                _warn_fallback(self._fallback_reason)
         ctx = self._fallback.graph_context(symbol)
         return GraphContext(
             symbol=ctx.symbol,
@@ -73,6 +116,7 @@ class CortexProvider:
             blast_radius=ctx.blast_radius,
             degraded=ctx.degraded,
             backend="cortex-fallback-builtin",
+            note=ctx.note,
         )
 
     def _graph_context_via_export(self, symbol: str) -> GraphContext | None:
@@ -82,7 +126,7 @@ class CortexProvider:
                 ["cortex", "graph", "export", str(self.repo), "--format", "json", "--out", str(out_path)],
                 text=True,
                 capture_output=True,
-                timeout=30,
+                timeout=_timeout("graph"),
             )
             if proc.returncode != 0 or not out_path.exists():
                 return None
@@ -130,11 +174,11 @@ class CortexProvider:
                     ["cortex", "bundle", str(self.repo), "--task", query, "--format", "json", "--budget", "4000"],
                     text=True,
                     capture_output=True,
-                    timeout=15,
+                    timeout=_timeout("bundle"),
                 )
                 if proc.returncode == 0:
                     data = json.loads(proc.stdout)
-                    return [
+                    hits = [
                         SearchHit(
                             file=item.get("path", item.get("title", "")),
                             line=item.get("metadata", {}).get("lineno", 1),
@@ -142,10 +186,13 @@ class CortexProvider:
                             snippet=item.get("content", "")[:200],
                             backend=self.backend,
                         )
-                        for item in data.get("items", [])[:k]
+                        for item in data.get("items", [])
                     ]
-            except Exception:
+                    return dedupe_hits(hits, k)
+            except Exception as exc:
                 self._using_fallback = True
+                self._fallback_reason = f"cortex bundle failed: {type(exc).__name__}"
+                _warn_fallback(self._fallback_reason)
         return [
             SearchHit(hit.file, hit.line, hit.score, hit.snippet, "cortex-fallback-builtin")
             for hit in self._fallback.search(query, k)

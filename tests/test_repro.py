@@ -44,3 +44,14 @@ def test_repro_classifies_passes(fixture_repo):
     body = "def test_trivial():\n    assert True\n"
     result = repro.repro_scaffold(str(root), "trivial", body)
     assert result["failure_kind"] == "passes"
+
+
+def test_repro_scaffold_gitignores_scaffolds(fixture_repo):
+    root = fixture_repo()
+    body = "def test_ok():\n    assert True\n"
+
+    result = repro.repro_scaffold(str(root), "keeps tree clean", body)
+
+    gitignore = Path(result["path"]).parent / ".gitignore"
+    assert gitignore.exists()
+    assert "*" in gitignore.read_text(encoding="utf-8")

@@ -8,6 +8,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from axon.parsing import iter_source_files
+
 from .base import GraphContext, SearchHit
 
 
@@ -19,8 +21,7 @@ class GrepProvider:
 
     def index(self, repo: Path) -> dict:
         self.repo = Path(repo).resolve()
-        files = list(self.repo.rglob("*.py"))
-        return {"files": len(files), "parsed": 0, "removed": 0, "degraded": True}
+        return {"files": len(self._files()), "parsed": 0, "removed": 0, "degraded": True}
 
     def graph_context(self, symbol: str) -> GraphContext:
         name = symbol.split(".")[-1]
@@ -95,13 +96,7 @@ class GrepProvider:
         return hits
 
     def _files(self) -> list[Path]:
-        skip = {".git", ".venv", "venv", "__pycache__", ".axon"}
-        out = []
-        for path in sorted(self.repo.rglob("*.py")):
-            if any(part in skip for part in path.relative_to(self.repo).parts[:-1]):
-                continue
-            out.append(path)
-        return out
+        return iter_source_files(self.repo, (".py",))
 
     @staticmethod
     def _read(path: Path) -> list[str]:

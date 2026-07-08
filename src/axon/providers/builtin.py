@@ -7,7 +7,7 @@ from pathlib import Path
 from axon.bm25 import BM25Corpus
 from axon.index import RepoIndex
 
-from .base import GraphContext, SearchHit
+from .base import GraphContext, SearchHit, dedupe_hits
 
 
 class BuiltinProvider:
@@ -55,13 +55,26 @@ class BuiltinProvider:
             blast_radius=self.indexer.blast_radius(symbol),
             degraded=False,
             backend=self.backend,
+            note=self._scope_note(bool(definitions)),
+        )
+
+    def _scope_note(self, found: bool) -> str:
+        """Explain an empty result so callers can tell 'not found' from
+        'unsupported' — the builtin index only understands Python."""
+        if found:
+            return ""
+        files = self.indexer.conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+        return (
+            f"symbol not found in {files} indexed Python file(s); "
+            "builtin analysis is Python-only, so symbols defined in other "
+            "languages are not represented"
         )
 
     def search(self, query: str, k: int = 10) -> list[SearchHit]:
-        out: list[SearchHit] = []
-        for hit in self.corpus.search(query, k):
+        raw: list[SearchHit] = []
+        for hit in self.corpus.search(query, max(k * 3, k)):
             file, line = self._doc_meta.get(hit.doc_id, ("", 1))
-            out.append(
+            raw.append(
                 SearchHit(
                     file=file,
                     line=line,
@@ -70,7 +83,7 @@ class BuiltinProvider:
                     backend=self.backend,
                 )
             )
-        return out
+        return dedupe_hits(raw, k)
 
     def _rebuild_corpus(self) -> None:
         docs: dict[str, str] = {}

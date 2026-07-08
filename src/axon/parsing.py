@@ -7,6 +7,8 @@ implement the same Parser protocol at the multi-lang milestone.
 from __future__ import annotations
 
 import ast
+import os
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Protocol
@@ -116,15 +118,59 @@ def _call_name(func: ast.expr) -> str | None:
     return None
 
 
+# Directories that never hold first-party source: VCS metadata, virtualenvs,
+# dependency checkouts, and build output. Skipping them keeps the index off
+# vendored/generated files (e.g. CMake's _deps/googletest-src) that otherwise
+# dominate retrieval on large native repos.
+_SKIP_DIRS = {
+    ".git", ".hg", ".svn", ".venv", "venv", "env", "node_modules",
+    "__pycache__", ".axon", ".tox", ".eggs", ".nox", "build", "dist",
+    "_deps", "target", "out", "coverage", "htmlcov", "site-packages",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", ".idea", ".vscode",
+}
+# Prefix-matched skips for directories whose exact name varies by build config.
+_SKIP_DIR_PREFIXES = ("cmake-build", "cmake_build")
+
+
+def _is_skipped_dir(name: str) -> bool:
+    return name in _SKIP_DIRS or name.startswith(_SKIP_DIR_PREFIXES)
+
+
 def iter_source_files(repo_root: Path, extensions: Iterable[str]) -> list[Path]:
-    skip_dirs = {".git", ".venv", "venv", "node_modules", "__pycache__", ".axon",
-                 ".tox", ".eggs", "build", "dist"}
+    repo_root = Path(repo_root)
     exts = tuple(extensions)
     out: list[Path] = []
-    for path in sorted(repo_root.rglob("*")):
-        if not path.is_file() or path.suffix not in exts:
-            continue
-        if any(part in skip_dirs for part in path.relative_to(repo_root).parts[:-1]):
-            continue
-        out.append(path)
-    return out
+    for dirpath, dirnames, filenames in os.walk(repo_root):
+        # Prune skipped directories in place so os.walk never descends into them.
+        dirnames[:] = [d for d in dirnames if not _is_skipped_dir(d)]
+        base = Path(dirpath)
+        for name in filenames:
+            if name.endswith(exts):
+                out.append(base / name)
+    ignored = _git_ignored(repo_root, out)
+    return sorted(p for p in out if p not in ignored)
+
+
+def _git_ignored(repo_root: Path, paths: list[Path]) -> set[Path]:
+    """Paths git ignores (honors .gitignore, .git/info/exclude, global excludes).
+
+    Best-effort: returns an empty set when the repo is not a git checkout or
+    git is unavailable, so indexing degrades to the static skip list only.
+    """
+    if not paths or not (repo_root / ".git").exists():
+        return set()
+    rels = [str(p.relative_to(repo_root)) for p in paths]
+    try:
+        proc = subprocess.run(
+            ["git", "check-ignore", "--stdin"],
+            cwd=str(repo_root),
+            input="\n".join(rels),
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if proc.returncode not in (0, 1):  # 0: some ignored, 1: none ignored
+        return set()
+    return {repo_root / line for line in proc.stdout.splitlines() if line.strip()}

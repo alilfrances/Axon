@@ -25,6 +25,25 @@ class GraphContext:
     blast_radius: list[str] = field(default_factory=list)
     degraded: bool = False
     backend: str = ""
+    # Human-readable scope/degradation note, e.g. when a symbol isn't found or
+    # analysis is limited to one language. Empty when there's nothing to flag.
+    note: str = ""
+
+
+def dedupe_hits(hits: list["SearchHit"], k: int) -> list["SearchHit"]:
+    """Collapse repeated file+snippet rows (chunk overlap yields the same span
+    at several ranks) while preserving order, returning at most ``k`` hits."""
+    out: list[SearchHit] = []
+    seen: set[tuple[str, str]] = set()
+    for hit in hits:
+        key = (hit.file, hit.snippet)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(hit)
+        if len(out) >= k:
+            break
+    return out
 
 
 class ContextProvider(Protocol):

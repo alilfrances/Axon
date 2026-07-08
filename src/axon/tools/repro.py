@@ -19,6 +19,7 @@ def repro_scaffold(repo: str, bug_slug: str, test_body: str | None = None) -> di
         return {"created": False, "error": "test_body must contain def test_", "path": None}
     target = _target_path(root, slug)
     target.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_gitignored(target.parent)
     target.write_text(body if body.endswith("\n") else body + "\n", encoding="utf-8")
     rel = str(target.relative_to(root))
     result = run_test_suite(root, rel)
@@ -31,6 +32,18 @@ def repro_scaffold(repo: str, bug_slug: str, test_body: str | None = None) -> di
         "failure_excerpt": _excerpt(result),
         "test_result": result,
     }
+
+
+def _ensure_gitignored(dir_path: Path) -> None:
+    """Keep generated repro tests out of git. A directory-local .gitignore of
+    ``*`` hides every file here (including itself), so `git status` stays clean
+    while the scaffolds remain runnable by pytest."""
+    ignore = dir_path / ".gitignore"
+    if not ignore.exists():
+        ignore.write_text(
+            "# Axon repro scaffolds - generated, not for version control.\n*\n",
+            encoding="utf-8",
+        )
 
 
 def _sanitize(slug: str) -> str:

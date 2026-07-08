@@ -59,6 +59,9 @@ def sast_scan(repo: str, timeout: int = 60) -> dict:
     else:
         findings = _fallback_scan(root)
         backend = "python-fallback"
+    warning = _fallback_warning(backend, semgrep, semgrep_error)
+    if warning:
+        print(f"Axon sast_scan: {warning}", file=sys.stderr, flush=True)
     return {
         "findings": findings,
         "count": len(findings),
@@ -68,8 +71,23 @@ def sast_scan(repo: str, timeout: int = 60) -> dict:
         "backend": backend,
         "semgrep_available": semgrep is not None,
         "semgrep_error": semgrep_error,
+        "warning": warning,
         "duration_s": time.monotonic() - start,
     }
+
+
+def _fallback_warning(backend: str, semgrep: str | None, semgrep_error: str | None) -> str | None:
+    if backend != "python-fallback":
+        return None
+    if semgrep is None:
+        return (
+            "semgrep is not installed; findings come from a low-confidence regex "
+            "fallback and will miss real issues. Install semgrep for reliable SAST."
+        )
+    return (
+        f"semgrep failed ({semgrep_error}); findings come from a low-confidence "
+        "regex fallback and will miss real issues."
+    )
 
 
 def _semgrep_binary() -> str | None:

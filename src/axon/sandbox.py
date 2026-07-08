@@ -59,7 +59,13 @@ def run_in_sandbox(
 
 
 def ensure_venv(repo: Path, path: Path) -> Path:
-    """Create an ephemeral venv and best-effort editable install the repo."""
+    """Create an ephemeral venv, best-effort editable-install the repo, and
+    return an interpreter that can run pytest.
+
+    The sandbox venv rarely ships pytest, so install it there when missing; if
+    that can't happen (e.g. offline) fall back to the interpreter running Axon
+    when it has pytest, rather than leaving test tooling silently dead.
+    """
     repo = Path(repo).resolve()
     path = Path(path).resolve()
     python = path / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
@@ -74,7 +80,37 @@ def ensure_venv(repo: Path, path: Path) -> Path:
             capture_output=True,
             timeout=120,
         )
-    return python if python.exists() else Path(sys.executable)
+    if not python.exists():
+        return Path(sys.executable)
+    if _has_pytest(python) or (_install_pytest(python) and _has_pytest(python)):
+        return python
+    if _has_pytest(Path(sys.executable)):
+        return Path(sys.executable)
+    return python
+
+
+def _has_pytest(python: Path) -> bool:
+    try:
+        proc = subprocess.run(
+            [str(python), "-m", "pytest", "--version"],
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0
+
+
+def _install_pytest(python: Path) -> bool:
+    try:
+        proc = subprocess.run(
+            [str(python), "-m", "pip", "install", "--disable-pip-version-check", "pytest"],
+            capture_output=True,
+            timeout=180,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0
 
 
 def _cap(text: str | bytes) -> str:
