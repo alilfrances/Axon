@@ -47,6 +47,24 @@ def test_bundled_semgrep_rules_do_not_flag_axon_non_sql_fstrings():
     assert [f for f in result["findings"] if f["cwe"] == "CWE-89"] == []
 
 
+def test_sast_scan_warns_loudly_when_semgrep_missing(vuln_repo, monkeypatch):
+    monkeypatch.setattr("axon.tools.sast._semgrep_binary", lambda: None)
+
+    result = sast_scan(str(vuln_repo))
+
+    assert result["semgrep_available"] is False
+    assert result["backend"] == "python-fallback"
+    assert result["warning"] and "semgrep" in result["warning"].lower()
+
+
+def test_sast_scan_no_warning_when_semgrep_backend(vuln_repo):
+    if not _semgrep_binary():
+        pytest.skip("semgrep is not installed")
+    result = sast_scan(str(vuln_repo))
+    if result["backend"] == "semgrep":
+        assert result["warning"] is None
+
+
 def test_server_registers_sast_refute_triage():
     tools = server.app.list_tools()
     if hasattr(tools, "__await__"):

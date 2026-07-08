@@ -25,7 +25,12 @@ Research shows no agent hits "90% detect everything" universally. Axon reaches
 - **Zero-config.** Install → run. Nothing else needed.
 - **No GPU, no model download, no daemon.** Retrieval defaults to BM25 + ripgrep.
 - **Optional accelerators, auto-detected, never required:**
-  - **Cortex** → richer code graph/impact. Absent → built-in provider.
+  - **Cortex** → richer code graph/impact. Preferred transport is Cortex's
+    MCP server (`cortex mcp`; override with `AXON_CORTEX_MCP_CMD`, set it to
+    `off` to force the CLI), which reuses Cortex's persistent per-repo index.
+    Falls back to the `cortex` CLI (per-call budgets tunable via
+    `AXON_CORTEX_INGEST_TIMEOUT` / `_BUNDLE_TIMEOUT` / `_GRAPH_TIMEOUT`),
+    then to the built-in provider — logging why it degraded.
   - Local embedding model → semantic re-rank. Absent → BM25 floor.
   - CodeQL → deeper security. Absent → Semgrep.
 - Same agent tools and output shape on every rung. Accelerators only improve

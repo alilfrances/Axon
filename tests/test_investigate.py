@@ -67,9 +67,9 @@ def test_investigate_respects_budget(fixture_repo):
     root = fixture_repo()
     provider, index = _setup(root)
     try:
-        result = investigate(provider, index, str(root), BUG, budget_chars=2000)
+        result = investigate(provider, index, str(root), BUG, budget_chars=1200)
         assert result["truncated"] is True
-        assert len(json.dumps(result)) <= 4000
+        assert len(json.dumps(result)) <= 2400
     finally:
         provider.close()
         index.close()
