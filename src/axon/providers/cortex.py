@@ -28,7 +28,7 @@ from .cortex_mcp import CortexMcpClient, CortexMcpError, CortexMcpToolError
 # can take minutes, so these are generous and overridable via the environment
 # (AXON_CORTEX_INGEST_TIMEOUT / _BUNDLE_TIMEOUT / _GRAPH_TIMEOUT). Too-tight
 # budgets were the root cause of silent builtin fallback on big repos.
-_DEFAULT_TIMEOUTS = {"ingest": 120, "bundle": 30, "graph": 60}
+_DEFAULT_TIMEOUTS = {"ingest": 600, "bundle": 30, "graph": 60}
 
 
 def _timeout(kind: str) -> int:
@@ -47,6 +47,14 @@ def _warn_fallback(reason: str | None) -> None:
               file=sys.stderr, flush=True)
 
 
+def _warn_ingest_progress() -> None:
+    print(
+        "Axon: cortex ingest in progress (large repos can take several minutes)...",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 class CortexProvider:
     backend = "cortex"
     mcp_backend = "cortex-mcp"
@@ -60,6 +68,7 @@ class CortexProvider:
         )
         self._mcp: CortexMcpClient | None = None
         self._mcp_state = "untried"  # "untried" | "ready" | "failed"
+        self._relations_warned = False
 
     def close(self) -> None:
         self._drop_mcp(None)
@@ -109,6 +118,7 @@ class CortexProvider:
         except CortexMcpToolError as exc:
             if exc.payload.get("error") != "missing_db":
                 raise
+            _warn_ingest_progress()
             client.call_tool("cortex_refresh", {"repo_path": str(self.repo)}, _timeout("ingest"))
             return client.call_tool(tool, arguments, timeout_s)
 
@@ -129,6 +139,7 @@ class CortexProvider:
         client = self._mcp_client()
         if client is not None:
             try:
+                _warn_ingest_progress()
                 payload = client.call_tool(
                     "cortex_refresh", {"repo_path": str(self.repo)}, _timeout("ingest")
                 )
@@ -144,6 +155,7 @@ class CortexProvider:
             reason = None
             budget = _timeout("ingest")
             try:
+                _warn_ingest_progress()
                 proc = subprocess.run(
                     ["cortex", "ingest", str(self.repo)],
                     text=True,
@@ -286,8 +298,15 @@ class CortexProvider:
                     },
                     _timeout("graph"),
                 )
-            except CortexMcpToolError:
-                continue  # older Cortex may reject the relation enum value
+            except CortexMcpError as exc:
+                if not self._relations_warned:
+                    print(
+                        f"Axon: cortex_relations unavailable; omitting callees ({exc})",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    self._relations_warned = True
+                return []
             for item in payload.get("items", []):
                 if not isinstance(item, dict):
                     continue

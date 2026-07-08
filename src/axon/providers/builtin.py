@@ -6,6 +6,7 @@ from pathlib import Path
 
 from axon.bm25 import BM25Corpus
 from axon.index import RepoIndex
+from axon.parsing import TEXT_EXTENSIONS, iter_source_files
 
 from .base import GraphContext, SearchHit, dedupe_hits
 
@@ -27,6 +28,10 @@ class BuiltinProvider:
             self.indexer = RepoIndex(self.repo)
         stats = self.indexer.refresh()
         self._rebuild_corpus()
+        stats["python_files"] = stats["files"]
+        stats["text_files"] = self.text_file_count()
+        if stats["text_files"] != stats["python_files"]:
+            stats["note"] = self.fallback_note()
         return stats
 
     def close(self) -> None:
@@ -70,6 +75,15 @@ class BuiltinProvider:
             "languages are not represented"
         )
 
+    def fallback_note(self) -> str:
+        return (
+            f"builtin fallback: full-text search across {self.text_file_count()} files; "
+            "symbol graph is Python-only"
+        )
+
+    def text_file_count(self) -> int:
+        return len(iter_source_files(self.repo, TEXT_EXTENSIONS))
+
     def search(self, query: str, k: int = 10) -> list[SearchHit]:
         raw: list[SearchHit] = []
         for hit in self.corpus.search(query, max(k * 3, k)):
@@ -98,11 +112,13 @@ class BuiltinProvider:
             doc_id = f"sym:{file}:{line}:{qualname}"
             docs[doc_id] = f"{file}\n{name}\n{qualname}\n{kind}\n{segment}"
             self._doc_meta[doc_id] = (file, line)
-        for (file,) in self.indexer.conn.execute("SELECT path FROM files").fetchall():
-            lines = self._read_lines(self.repo / file)
-            doc_id = f"file:{file}"
-            docs[doc_id] = f"{file}\n" + "\n".join(lines[:100])
-            self._doc_meta[doc_id] = (file, 1)
+        for path in iter_source_files(self.repo, TEXT_EXTENSIONS):
+            file = str(path.relative_to(self.repo))
+            lines = self._read_lines(path)
+            for chunk_no, start in enumerate(range(0, max(len(lines), 1), 100), 1):
+                doc_id = f"file:{file}:{chunk_no}"
+                docs[doc_id] = f"{file}\n" + "\n".join(lines[start:start + 100])
+                self._doc_meta[doc_id] = (file, start + 1)
         self.corpus.build(docs)
 
     @staticmethod

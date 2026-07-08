@@ -11,7 +11,7 @@ def test_server_tools_registered():
 
         tools = asyncio.run(tools)
     names = {tool.name for tool in tools}
-    assert {"index", "graph_context", "search", "run_tests"} <= names
+    assert {"index", "graph_context", "search", "status", "run_tests"} <= names
 
 
 def test_server_underlying_functions(fixture_repo):
@@ -20,10 +20,14 @@ def test_server_underlying_functions(fixture_repo):
     stats = server.index_repo(str(repo))
     ctx = server.graph_context(str(repo), "divide")
     hits = server.search(str(repo), "divide", 3)
+    status = server.status(str(repo))
 
     assert stats["files"] >= 3
     assert ctx["backend"] in {"builtin", "cortex-fallback-builtin"}
     assert hits
+    assert status["backend"] in {"builtin", "cortex-fallback-builtin"}
+    assert status["python_files"] >= 3
+    assert status["text_files"] >= status["python_files"]
 
 
 def test_cli_doctor_no_crash(capsys):

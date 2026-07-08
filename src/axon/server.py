@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from axon.providers.base import ContextProvider
 from axon.providers.select import select_provider
 from axon.index import RepoIndex
+from axon.parsing import TEXT_EXTENSIONS, iter_source_files
 from axon.tools.inspect_run import inspect_test
 from axon.tools.investigate import investigate as investigate_tool
 from axon.tools.localize import localize as localize_tool
@@ -46,6 +47,18 @@ def graph_context(repo: str, symbol: str) -> dict:
 @app.tool(name="search")
 def search(repo: str, query: str, k: int = 10) -> list[dict]:
     return [asdict(hit) for hit in _provider(repo).search(query, k)]
+
+
+@app.tool(name="status")
+def status(repo: str) -> dict:
+    provider = _provider(repo)
+    root = Path(repo).resolve()
+    return {
+        "backend": _active_backend(provider),
+        "fallback_reason": getattr(provider, "_fallback_reason", None),
+        "python_files": len(iter_source_files(root, (".py",))),
+        "text_files": len(iter_source_files(root, TEXT_EXTENSIONS)),
+    }
 
 
 @app.tool(name="run_tests")
@@ -118,6 +131,15 @@ def _repo_index(provider: ContextProvider, repo: Path) -> RepoIndex:
     indexer = RepoIndex(repo)
     indexer.refresh()
     return indexer
+
+
+def _active_backend(provider: ContextProvider) -> str:
+    if getattr(provider, "_using_fallback", False):
+        return "cortex-fallback-builtin"
+    mcp_state = getattr(provider, "_mcp_state", None)
+    if mcp_state == "ready":
+        return getattr(provider, "mcp_backend", provider.backend)
+    return provider.backend
 
 
 def main() -> None:

@@ -7,6 +7,8 @@ via AXON_CORTEX_MCP_CMD. Env knobs:
 - FAKE_CORTEX_MISSING_DB=1: tools error with missing_db until cortex_refresh
   is called (exercises the adapter's refresh-and-retry path).
 - FAKE_CORTEX_NO_TOOLS=1: advertise no tools (exercises the handshake guard).
+- FAKE_CORTEX_RELATIONS_METHOD_ERROR=1: fail cortex_relations like an older
+  JSON-RPC server without the optional tool.
 """
 
 from __future__ import annotations
@@ -99,6 +101,17 @@ def main() -> int:
             result = {"tools": [{"name": n, "description": "", "inputSchema": {"type": "object"}} for n in TOOL_NAMES]}
         elif method == "tools/call":
             params = frame.get("params") or {}
+            if (
+                params.get("name") == "cortex_relations"
+                and os.environ.get("FAKE_CORTEX_RELATIONS_METHOD_ERROR") == "1"
+            ):
+                sys.stdout.write(json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32601, "message": "Method not found"},
+                }) + "\n")
+                sys.stdout.flush()
+                continue
             result = _call(params.get("name", ""), params.get("arguments") or {})
         else:
             continue

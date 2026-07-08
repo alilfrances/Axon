@@ -33,13 +33,16 @@ def test_grep_provider_degraded(fixture_repo):
     assert ctx.blast_radius == []
 
 
-def test_select_provider_prefer_builtin(fixture_repo):
+def test_select_provider_prefer_builtin(fixture_repo, capsys):
     repo = fixture_repo()
     provider = select_provider(repo, prefer="builtin")
     try:
         assert isinstance(provider, BuiltinProvider)
     finally:
         provider.close()
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Axon provider: builtin" in captured.err
 
 
 def test_select_provider_default_never_raises(monkeypatch, fixture_repo):
@@ -121,7 +124,7 @@ def test_cortex_index_timeout_surfaces_reason(monkeypatch, fixture_repo):
 def test_cortex_ingest_timeout_is_configurable(monkeypatch, fixture_repo):
     repo = fixture_repo()
     monkeypatch.setattr(CortexProvider, "available", classmethod(lambda cls: True))
-    monkeypatch.setenv("AXON_CORTEX_INGEST_TIMEOUT", "600")
+    monkeypatch.setenv("AXON_CORTEX_INGEST_TIMEOUT", "900")
     seen: dict[str, int] = {}
 
     def fake_run(cmd, **kwargs):
@@ -133,7 +136,29 @@ def test_cortex_ingest_timeout_is_configurable(monkeypatch, fixture_repo):
     monkeypatch.setattr("axon.providers.cortex.subprocess.run", fake_run)
     CortexProvider(repo).index(repo)
 
+    assert seen["timeout"] == 900
+
+
+def test_cortex_ingest_timeout_default_and_progress(monkeypatch, fixture_repo, capsys):
+    repo = fixture_repo()
+    monkeypatch.setattr(CortexProvider, "available", classmethod(lambda cls: True))
+    seen: dict[str, int] = {}
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:2] == ["cortex", "ingest"]:
+            seen["timeout"] = kwargs.get("timeout")
+            return SimpleNamespace(returncode=0, stdout='{"backend": "cortex"}')
+        return SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr("axon.providers.cortex.subprocess.run", fake_run)
+    provider = CortexProvider(repo)
+    try:
+        provider.index(repo)
+    finally:
+        provider.close()
+
     assert seen["timeout"] == 600
+    assert "cortex ingest in progress" in capsys.readouterr().err
 
 
 def test_builtin_search_dedupes_repeated_rows(fixture_repo):
@@ -145,6 +170,38 @@ def test_builtin_search_dedupes_repeated_rows(fixture_repo):
         assert len(keys) == len(set(keys))
     finally:
         provider.close()
+
+
+def test_builtin_fallback_searches_text_extensions(tmp_path):
+    repo = tmp_path / "mixed"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "math.cpp").write_text(
+        "int divide_zero_guard(int value) {\n    return value == 0 ? 0 : 42 / value;\n}\n",
+        encoding="utf-8",
+    )
+    provider = BuiltinProvider(repo)
+    try:
+        stats = provider.index(repo)
+        hits = provider.search("divide_zero_guard", 5)
+    finally:
+        provider.close()
+
+    assert stats["python_files"] == 0
+    assert stats["text_files"] == 1
+    assert "full-text search across 1 files" in stats["note"]
+    assert hits and hits[0].file == "src/math.cpp"
+
+
+def test_grep_provider_counts_text_extensions(tmp_path):
+    repo = tmp_path / "mixed"
+    repo.mkdir()
+    (repo / "Widget.swift").write_text("func renderWidget() {}\n", encoding="utf-8")
+
+    stats = GrepProvider(repo).index(repo)
+
+    assert stats["files"] == 1
+    assert stats["python_files"] == 0
+    assert stats["text_files"] == 1
 
 
 def test_builtin_graph_context_notes_missing_symbol(fixture_repo):

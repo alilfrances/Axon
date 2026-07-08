@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 from .base import ContextProvider
 from .builtin import BuiltinProvider
@@ -24,5 +25,5 @@ def select_provider(repo: Path, prefer: str | None = None) -> ContextProvider:
             provider = CortexProvider(repo) if CortexProvider.available() else BuiltinProvider(repo)
         except Exception:
             provider = GrepProvider(repo)
-    print(f"Axon provider: {provider.backend}", flush=True)
+    print(f"Axon provider: {provider.backend}", file=sys.stderr, flush=True)
     return provider

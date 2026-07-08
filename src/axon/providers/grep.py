@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from axon.parsing import iter_source_files
+from axon.parsing import TEXT_EXTENSIONS, iter_source_files
 
 from .base import GraphContext, SearchHit
 
@@ -21,7 +21,17 @@ class GrepProvider:
 
     def index(self, repo: Path) -> dict:
         self.repo = Path(repo).resolve()
-        return {"files": len(self._files()), "parsed": 0, "removed": 0, "degraded": True}
+        files = self._files()
+        python_files = [path for path in files if path.suffix == ".py"]
+        return {
+            "files": len(files),
+            "python_files": len(python_files),
+            "text_files": len(files),
+            "parsed": 0,
+            "removed": 0,
+            "degraded": True,
+            "note": self.fallback_note(),
+        }
 
     def graph_context(self, symbol: str) -> GraphContext:
         name = symbol.split(".")[-1]
@@ -96,7 +106,13 @@ class GrepProvider:
         return hits
 
     def _files(self) -> list[Path]:
-        return iter_source_files(self.repo, (".py",))
+        return iter_source_files(self.repo, TEXT_EXTENSIONS)
+
+    def fallback_note(self) -> str:
+        return (
+            f"builtin fallback: full-text search across {len(self._files())} files; "
+            "symbol graph is Python-only"
+        )
 
     @staticmethod
     def _read(path: Path) -> list[str]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import sys
 from pathlib import Path
 
@@ -7,7 +8,7 @@ import pytest
 
 from axon.providers.cortex import CortexProvider
 
-_FAKE_SERVER = Path(__file__).parent / "fake_cortex_mcp.py"
+_FAKE_SERVER = (Path(__file__).parent / "fake_cortex_mcp.py").resolve()
 
 
 @pytest.fixture
@@ -15,7 +16,7 @@ def mcp_env(monkeypatch):
     # Disable the CLI rung so assertions exercise MCP vs builtin deterministically,
     # even on machines where a real cortex binary is installed.
     monkeypatch.setattr(CortexProvider, "available", classmethod(lambda cls: False))
-    monkeypatch.setenv("AXON_CORTEX_MCP_CMD", f"{sys.executable} {_FAKE_SERVER}")
+    monkeypatch.setenv("AXON_CORTEX_MCP_CMD", f"{sys.executable} {shlex.quote(str(_FAKE_SERVER))}")
 
 
 @pytest.fixture
@@ -49,6 +50,20 @@ def test_mcp_graph_context_maps_symbols_and_references(provider):
     # callees come from `calls` edges; a sibling function's edge whose source
     # is not this symbol must be filtered out.
     assert ctx.callees == ["abs"]
+
+
+def test_mcp_relations_error_omits_callees_without_dropping_transport(mcp_env, monkeypatch, fixture_repo):
+    monkeypatch.setenv("FAKE_CORTEX_RELATIONS_METHOD_ERROR", "1")
+    provider = CortexProvider(fixture_repo())
+    try:
+        ctx = provider.graph_context("divide")
+        hits = provider.search("divide", 3)
+    finally:
+        provider.close()
+
+    assert ctx.backend == "cortex-mcp"
+    assert ctx.callees == []
+    assert hits and all(hit.backend == "cortex-mcp" for hit in hits)
 
 
 def test_mcp_graph_context_unknown_symbol_falls_back_with_note(provider):

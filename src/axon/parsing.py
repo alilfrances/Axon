@@ -131,6 +131,33 @@ _SKIP_DIRS = {
 # Prefix-matched skips for directories whose exact name varies by build config.
 _SKIP_DIR_PREFIXES = ("cmake-build", "cmake_build")
 
+TEXT_EXTENSIONS = frozenset(
+    {
+        ".py",
+        ".c",
+        ".h",
+        ".cc",
+        ".cpp",
+        ".cxx",
+        ".hpp",
+        ".m",
+        ".mm",
+        ".swift",
+        ".java",
+        ".kt",
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".qml",
+        ".go",
+        ".rs",
+        ".rb",
+        ".php",
+        ".cs",
+    }
+)
+
 
 def _is_skipped_dir(name: str) -> bool:
     return name in _SKIP_DIRS or name.startswith(_SKIP_DIR_PREFIXES)
