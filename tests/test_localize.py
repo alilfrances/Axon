@@ -45,6 +45,25 @@ class Bm25OnlyProvider(BuiltinProvider):
         return GraphContext(symbol=symbol, backend=self.backend)
 
 
+class LowScoreBm25OnlyProvider(BuiltinProvider):
+    def search(self, query: str, k: int = 10) -> list[SearchHit]:
+        return [SearchHit(file="pkg/only.py", line=3, score=0.016, snippet="", backend=self.backend)]
+
+    def graph_context(self, symbol: str) -> GraphContext:
+        return GraphContext(symbol=symbol, backend=self.backend)
+
+
+class MixedScoreProvider(BuiltinProvider):
+    def search(self, query: str, k: int = 10) -> list[SearchHit]:
+        return [
+            SearchHit(file="pkg/junk.py", line=1, score=0.016, snippet="", backend=self.backend),
+            SearchHit(file="pkg/target.py", line=4, score=8.0, snippet="", backend=self.backend),
+        ][:k]
+
+    def graph_context(self, symbol: str) -> GraphContext:
+        return GraphContext(symbol=symbol, backend=self.backend)
+
+
 def test_localize_traceback_ranks_frame_file_first(fixture_repo):
     repo = fixture_repo()
     provider = BuiltinProvider(repo)
@@ -212,7 +231,27 @@ def test_fuse_marks_three_source_suspect_high_confidence():
     assert result[0]["confidence"] == "high"
 
 
-def test_localize_flags_lone_bm25_top_suspect_low_confidence(tmp_path: Path):
+def test_fuse_demotes_near_zero_bm25_rank_one_below_stronger_signals():
+    result = _fuse(
+        [
+            (
+                "bm25",
+                [
+                    {"file": "junk.py", "line": 1, "evidence": "bm25 rank 1", "raw_score": 0.016},
+                    {"file": "target.py", "line": 7, "evidence": "bm25 rank 2", "raw_score": 8.0},
+                ],
+            ),
+            ("graph", [{"file": "graph.py", "line": 3, "evidence": "calls Widget (graph)"}]),
+        ],
+        k=3,
+    )
+
+    assert [item["file"] for item in result] == ["target.py", "graph.py", "junk.py"]
+    assert result[0]["confidence"] == "medium"
+    assert result[2]["confidence"] == "low"
+
+
+def test_localize_promotes_lone_strong_bm25_top_suspect_to_medium_confidence(tmp_path: Path):
     repo = tmp_path / "repo"
     (repo / "pkg").mkdir(parents=True)
     (repo / "pkg" / "__init__.py").write_text("", encoding="utf-8")
@@ -224,9 +263,48 @@ def test_localize_flags_lone_bm25_top_suspect_low_confidence(tmp_path: Path):
         result = localize(provider, index, "WidgetFailure happens", k=3)
 
         assert result["suspects"][0]["file"] == "pkg/only.py"
+        assert result["suspects"][0]["confidence"] == "medium"
+        assert result["low_confidence"] is False
+    finally:
+        provider.close()
+        index.close()
+
+
+def test_localize_flags_lone_near_zero_bm25_top_suspect_low_confidence(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "pkg").mkdir(parents=True)
+    (repo / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "pkg" / "only.py").write_text("def handle():\n    return 1\n", encoding="utf-8")
+    provider = LowScoreBm25OnlyProvider(repo)
+    index = RepoIndex(repo)
+    try:
+        index.refresh()
+        result = localize(provider, index, "WidgetFailure happens", k=3)
+
+        assert result["suspects"][0]["file"] == "pkg/only.py"
         assert result["suspects"][0]["confidence"] == "low"
         assert result["low_confidence"] is True
         assert "top suspect low-confidence" in result["note"]
+    finally:
+        provider.close()
+        index.close()
+
+
+def test_localize_strong_bm25_hit_surfaces_above_rank_one_junk(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "pkg").mkdir(parents=True)
+    (repo / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "pkg" / "junk.py").write_text("def unrelated():\n    return 1\n", encoding="utf-8")
+    (repo / "pkg" / "target.py").write_text("def handle():\n    return 2\n", encoding="utf-8")
+    provider = MixedScoreProvider(repo)
+    index = RepoIndex(repo)
+    try:
+        index.refresh()
+        result = localize(provider, index, "broken behavior", k=3)
+
+        assert result["suspects"][0]["file"] == "pkg/target.py"
+        assert result["suspects"][0]["confidence"] == "medium"
+        assert any(suspect["file"] == "pkg/junk.py" for suspect in result["suspects"][1:])
     finally:
         provider.close()
         index.close()

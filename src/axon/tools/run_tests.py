@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from xml.etree import ElementTree
 
+from axon.parsing import _is_skipped_dir
 from axon.sandbox import ensure_venv, run_in_sandbox
 from axon.store import default_venv_dir
 
@@ -186,10 +187,14 @@ def _find_ctest_build_dir(repo: Path) -> Path | None:
     for candidate in candidates:
         if (candidate / "CTestTestfile.cmake").exists():
             return candidate
+    fallback: list[Path] = []
     for path in repo.rglob("CTestTestfile.cmake"):
-        if any(part.startswith(".") for part in path.relative_to(repo).parts):
+        parts = path.relative_to(repo).parts
+        if any(part.startswith(".") or _is_skipped_dir(part) for part in parts):
             continue
-        return path.parent
+        fallback.append(path.parent)
+    if fallback:
+        return min(fallback, key=lambda path: (len(path.relative_to(repo).parts), str(path)))
     return None
 
 

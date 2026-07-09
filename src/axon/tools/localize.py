@@ -29,6 +29,10 @@ _WEIGHTS = {
     "recency": 0.5,
 }
 _RRF_K = 60
+_RRF_SCORE_ALPHA = 0.3
+_BM25_LOW_SCORE_THRESHOLD = 0.05
+_BM25_STRONG_SCORE_THRESHOLD = 0.5
+_BM25_STRONG_NORM_THRESHOLD = 0.6
 _STOPWORDS = {
     "a", "about", "above", "after", "again", "against", "all", "also", "am", "an",
     "and", "any", "are", "as", "at", "be", "because", "been", "before", "being",
@@ -53,6 +57,8 @@ class _Candidate:
     sources: set[str] = field(default_factory=set)
     line_weight: float = 0.0
     line_rank: int = 0
+    max_score_norm: float = 0.0
+    max_raw_score: float = 0.0
 
 
 def localize(
@@ -279,6 +285,7 @@ def _bm25_candidates(provider: ContextProvider, bug_text: str, signals: dict, k:
                 "file": hit.file,
                 "line": hit.line,
                 "evidence": f"bm25 rank {rank}",
+                "raw_score": float(hit.score),
             }
         )
     return out
@@ -420,8 +427,11 @@ def _fuse(ranked_lists: list[tuple[str, list[dict]]], k: int) -> list[dict]:
                 continue
             if file not in best_by_file:
                 best_by_file[file] = (rank, cand)
+        score_norms = _score_norms([cand for _, cand in best_by_file.values()])
         for file, (rank, cand) in best_by_file.items():
-            score = weight / (_RRF_K + rank)
+            score_norm = score_norms.get(id(cand), 1.0)
+            # Blend retrieval magnitude with RRF rank so near-zero hits cannot tie strong hits at the same rank.
+            score = weight * (_RRF_SCORE_ALPHA + (1 - _RRF_SCORE_ALPHA) * score_norm) / (_RRF_K + rank)
             current = by_file.get(file)
             if current is None:
                 current = _Candidate(
@@ -433,6 +443,8 @@ def _fuse(ranked_lists: list[tuple[str, list[dict]]], k: int) -> list[dict]:
                 )
                 by_file[file] = current
             current.score += score
+            current.max_score_norm = max(current.max_score_norm, score_norm)
+            current.max_raw_score = max(current.max_raw_score, float(cand.get("raw_score", 0.0) or 0.0))
             if weight > current.line_weight or (weight == current.line_weight and rank < current.line_rank):
                 current.line = int(cand.get("line", 1))
                 current.line_weight = weight
@@ -442,7 +454,7 @@ def _fuse(ranked_lists: list[tuple[str, list[dict]]], k: int) -> list[dict]:
                 current.evidence.append(cand["evidence"])
     suspects = sorted(
         by_file.values(),
-        key=lambda cand: (-cand.score, cand.file),
+        key=_fuse_sort_key,
     )
     return [
         {
@@ -450,15 +462,44 @@ def _fuse(ranked_lists: list[tuple[str, list[dict]]], k: int) -> list[dict]:
             "line": cand.line,
             "score": round(cand.score, 6),
             "evidence": cand.evidence,
-            "confidence": _confidence(cand.sources),
+            "confidence": _confidence(cand.sources, cand.max_score_norm, cand.max_raw_score),
         }
         for cand in suspects[:k]
     ]
 
 
-def _confidence(sources: set[str]) -> str:
+def _score_norms(candidates: list[dict]) -> dict[int, float]:
+    scored = [(id(cand), float(cand.get("raw_score", 0.0) or 0.0)) for cand in candidates if "raw_score" in cand]
+    if not scored:
+        return {}
+    values = [score for _, score in scored]
+    lo = min(values)
+    hi = max(values)
+    if hi > lo:
+        return {cand_id: max(0.0, min(1.0, (score - lo) / (hi - lo))) for cand_id, score in scored}
+    norm = 1.0 if hi >= _BM25_LOW_SCORE_THRESHOLD else 0.0
+    return {cand_id: norm for cand_id, _ in scored}
+
+
+def _confidence(sources: set[str], max_score_norm: float = 0.0, max_raw_score: float = 0.0) -> str:
+    if sources == {"bm25"}:
+        if max_raw_score < _BM25_LOW_SCORE_THRESHOLD:
+            return "low"
+        if max_raw_score >= _BM25_STRONG_SCORE_THRESHOLD and max_score_norm >= _BM25_STRONG_NORM_THRESHOLD:
+            return "medium"
     if len(sources) == 1:
         return "low"
     if len(sources) == 2:
         return "medium"
     return "high"
+
+
+def _confidence_tier(cand: _Candidate) -> int:
+    return {"low": 0, "medium": 1, "high": 2}[_confidence(cand.sources, cand.max_score_norm, cand.max_raw_score)]
+
+
+def _fuse_sort_key(cand: _Candidate) -> tuple:
+    tier = _confidence_tier(cand)
+    if tier == 2:
+        return (-tier, -cand.line_weight, cand.line_rank, -cand.score, cand.file)
+    return (-tier, -cand.score, cand.file)
