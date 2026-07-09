@@ -11,7 +11,12 @@ from axon.parsing import FileFacts, PythonAstParser
 from axon.providers.base import GraphContext, SearchHit
 from axon.providers.builtin import BuiltinProvider
 from axon.providers.cortex import _prefer_basename_definition
-from axon.tools.localize import _extract_signals, _fuse, _score_norms, _symbol_candidates, localize
+
+_extract_signals = localize_tool._extract_signals
+_fuse = localize_tool._fuse
+_score_norms = localize_tool._score_norms
+_symbol_candidates = localize_tool._symbol_candidates
+localize = localize_tool.localize
 
 
 class FloodProvider(BuiltinProvider):
