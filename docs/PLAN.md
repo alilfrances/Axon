@@ -1,5 +1,9 @@
 # Axon — Root-Cause Debugging & Vulnerability Plugin
 
+> Historical planning document, preserved as written. Packaging, dependency,
+> and milestone details below reflect the plan at the time of writing, not the
+> live `0.5.11` release state as of 2026-07-09.
+
 > **Axon** traces a fault signal back to its source — the way an axon carries a
 > neuron's signal. Companion to **Cortex** (Cortex = context/graph brain; Axon =
 > the debugging + security tracer). Cortex optional, never required.

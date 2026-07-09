@@ -1,5 +1,9 @@
 # Axon — Verification Report
 
+> Historical verification log. Counts and packaging notes below are preserved
+> as dated evidence from the listed runs; they are not a live status page for
+> the current `0.5.11` release as of 2026-07-09.
+
 Overnight autonomous build, 2026-07-07. Six phases, one commit each. Every
 phase independently verified by the coordinator (not trusting subagent reports)
 before commit.
@@ -115,17 +119,18 @@ spectrum/inspect/rank_patches/investigate):
   carry real line evidence). Exact-function top-k SOTA with LLM reranking is
   20–32%; Axon's contract keeps the calling agent as the reranking layer.
 - Misses unchanged: django-10914, django-11087 (plus 10880/10973 at k=3).
-- 60 tests pass at `eb4109b`+docs; suite runs with no network/Docker.
+ - Historical note: 60 tests passed at `eb4109b`+docs; the current repository
+   suite contains 115 test functions and still runs with no network/Docker.
 
 ## How to run
 
 ```bash
-pip install -e .            # or: uvx axon
+pip install -e .            # or: uvx axon-debug
 axon doctor                 # environment + active backend
 axon index <repo>           # build/refresh index
 axon serve                  # start MCP stdio server
-python -m pytest            # 60 tests, no network/Docker
+python -m pytest            # historical doc said 60; current suite has 115 test functions
 ```
 
-Plug-and-play confirmed: runs with Cortex absent (Builtin backend), semgrep
-resolved from the install venv, no GPU, no model download, no daemon.
+Plug-and-play confirmed for the dated run: Cortex absent (Builtin backend),
+semgrep available in that environment, no GPU, no model download, no daemon.
