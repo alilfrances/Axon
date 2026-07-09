@@ -83,6 +83,6 @@ should be rare and documented in the pull request or release notes with:
 
 - Use least-privilege GitHub tokens and rotate any token that may have touched a public log.
 - Never paste secrets into issues, pull requests, workflow logs, or test fixtures.
-- Treat changes to `.github/`, `.claude-plugin/serve.sh`, dependency metadata, sandboxing, patch application, and process execution as security-sensitive.
+- Treat changes to `.github/`, `bin/axon-mcp.py`, dependency metadata, sandboxing, patch application, and process execution as security-sensitive.
 - Review Dependabot pull requests before merging; do not auto-merge major updates.
 - Keep this document aligned with workflow names whenever checks are renamed.

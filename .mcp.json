@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "axon": {
-      "command": "sh",
+      "command": "python3",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/serve.sh"
+        "${CLAUDE_PLUGIN_ROOT}/bin/axon-mcp.py"
       ]
     }
   }

@@ -13,33 +13,31 @@ def _load(path: str) -> dict:
 
 def test_codex_plugin_manifest_exposes_axon_mcp_server():
     manifest = _load(".codex-plugin/plugin.json")
+    claude_manifest = _load(".claude-plugin/plugin.json")
     mcp = _load(".mcp.json")
 
     assert manifest["name"] == "axon"
-    assert manifest["version"] == _load(".claude-plugin/plugin.json")["version"]
+    assert manifest["version"] == claude_manifest["version"]
     assert manifest["mcpServers"] == "./.mcp.json"
     assert manifest["interface"]["category"] == "Developer Tools"
     assert "axon" in mcp["mcpServers"]
-    assert mcp["mcpServers"]["axon"]["command"] == "sh"
-    assert mcp["mcpServers"]["axon"]["args"][0].endswith(".claude-plugin/serve.sh")
+    assert mcp["mcpServers"]["axon"]["command"] == "python3"
+    assert mcp["mcpServers"]["axon"]["args"][0].endswith("bin/axon-mcp.py")
+    assert claude_manifest["mcpServers"]["axon"]["command"] == "python3"
+    assert claude_manifest["mcpServers"]["axon"]["args"][0].endswith("bin/axon-mcp.py")
 
 
 def test_plugin_launcher_uses_dependency_free_stdio_adapter():
-    script = (ROOT / ".claude-plugin/serve.sh").read_text(encoding="utf-8")
+    script = (ROOT / "bin/axon-mcp.py").read_text(encoding="utf-8")
 
     assert 'pip install' not in script
     assert 'AXON_PLUGIN_VENV' not in script
-    assert 'PYTHONPATH="$ROOT/src"' in script
-    assert 'exec "$PYTHON" -S -m axon.mcp_stdio' in script
+    assert 'sys.path.insert(0, str(SRC))' in script
+    assert 'from axon.mcp_stdio import main' in script
     assert '--system-site-packages' not in script
     assert 'VENV="$ROOT/.venv-plugin"' not in script
 
 
-def test_codex_marketplace_points_at_repo_root():
-    marketplace = _load(".agents/plugins/marketplace.json")
-    [entry] = marketplace["plugins"]
-
-    assert marketplace["name"] == "axon"
-    assert entry["name"] == "axon"
-    assert entry["source"] == {"source": "local", "path": "./"}
-    assert entry["policy"]["installation"] == "AVAILABLE"
+def test_duplicate_codex_launcher_files_are_removed():
+    assert not (ROOT / ".agents/plugins/marketplace.json").exists()
+    assert not (ROOT / ".claude-plugin/serve.sh").exists()
