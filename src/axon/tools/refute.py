@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 def refute(repo: str, finding: dict, mode: str = "static") -> dict:
+    """Refute a finding using static analysis; only ``mode="static"`` is supported."""
     if mode != "static":
         raise ValueError("refute mode must be static")
     root = Path(repo).resolve()

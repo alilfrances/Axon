@@ -1,4 +1,4 @@
-"""Runtime exception-state inspection for one pytest target."""
+"""Runtime exception-state inspection for one test target."""
 
 from __future__ import annotations
 
@@ -9,10 +9,21 @@ from pathlib import Path
 
 from axon.sandbox import ensure_venv, run_in_sandbox
 from axon.store import default_venv_dir
+from axon.tools.run_tests import detect_test_runner, run_test_suite
 
 
 def inspect_test(repo: str, test_target: str, timeout: int = 120) -> dict:
     root = Path(repo).resolve()
+    runner = detect_test_runner(root)
+    if runner["kind"] == "ctest":
+        result = run_test_suite(root, test_target, timeout)
+        failed = result["failed"] > 0 or result["errors"] > 0 or result["exit_code"] != 0
+        return {
+            "failures": result.get("failures", []),
+            "degraded": failed,
+            "note": "ctest pass/fail only; Python frame locals are unavailable for C++ tests",
+            "test_result": result,
+        }
     python = _python_with_pytest(root)
     axon_src = Path(__file__).resolve().parents[2]
     result = run_in_sandbox(

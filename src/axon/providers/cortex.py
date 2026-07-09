@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from .base import GraphContext, SearchHit, dedupe_hits
@@ -26,9 +27,10 @@ from .cortex_mcp import CortexMcpClient, CortexMcpError, CortexMcpToolError
 
 # Default per-call budgets (seconds). Cortex's first `ingest` of a large repo
 # can take minutes, so these are generous and overridable via the environment
-# (AXON_CORTEX_INGEST_TIMEOUT / _BUNDLE_TIMEOUT / _GRAPH_TIMEOUT). Too-tight
-# budgets were the root cause of silent builtin fallback on big repos.
-_DEFAULT_TIMEOUTS = {"ingest": 600, "bundle": 30, "graph": 60}
+# (AXON_CORTEX_INGEST_TIMEOUT / _BUNDLE_TIMEOUT / _GRAPH_TIMEOUT /
+# _MCP_QUERY_TIMEOUT). Too-tight budgets were the root cause of silent builtin
+# fallback on big repos.
+_DEFAULT_TIMEOUTS = {"ingest": 600, "bundle": 30, "graph": 60, "mcp_query": 120}
 
 
 def _timeout(kind: str) -> int:
@@ -62,12 +64,12 @@ class CortexProvider:
     def __init__(self, repo: Path):
         self.repo = Path(repo).resolve()
         self._fallback = BuiltinProvider(self.repo)
-        self._using_fallback = not self.available()
-        self._fallback_reason: str | None = (
-            "cortex CLI not found on PATH" if self._using_fallback else None
-        )
+        self._cli_available = self.available()
+        self._using_fallback = False
+        self._fallback_reason: str | None = None
         self._mcp: CortexMcpClient | None = None
         self._mcp_state = "untried"  # "untried" | "ready" | "failed"
+        self._mcp_retry_at = 0.0
         self._relations_warned = False
 
     def close(self) -> None:
@@ -79,7 +81,7 @@ class CortexProvider:
     def _mcp_client(self) -> CortexMcpClient | None:
         if self._mcp_state == "ready":
             return self._mcp
-        if self._mcp_state == "failed":
+        if self._mcp_state == "failed" and time.monotonic() < self._mcp_retry_at:
             return None
         # Try MCP when a command is configured explicitly or cortex is on PATH;
         # otherwise skip straight to the CLI/builtin rungs without a subprocess.
@@ -89,6 +91,7 @@ class CortexProvider:
             not raw_cmd and shutil.which("cortex") is None
         ):
             self._mcp_state = "failed"
+            self._mcp_retry_at = time.monotonic() + 5.0
             return None
         client = CortexMcpClient(self.repo)
         try:
@@ -96,10 +99,13 @@ class CortexProvider:
         except CortexMcpError as exc:
             client.close()
             self._mcp_state = "failed"
+            self._mcp_retry_at = time.monotonic()
             print(f"Axon: cortex MCP unavailable, trying CLI ({exc})", file=sys.stderr, flush=True)
             return None
         self._mcp = client
         self._mcp_state = "ready"
+        self._mcp_retry_at = 0.0
+        self._fallback_reason = None
         return client
 
     def _drop_mcp(self, reason: str | None) -> None:
@@ -107,6 +113,7 @@ class CortexProvider:
             self._mcp.close()
             self._mcp = None
         self._mcp_state = "failed"
+        self._mcp_retry_at = time.monotonic()
         if reason:
             print(f"Axon: cortex MCP failed, trying CLI ({reason})", file=sys.stderr, flush=True)
 
@@ -134,6 +141,7 @@ class CortexProvider:
         return proc.returncode == 0
 
     def index(self, repo: Path) -> dict:
+        self._using_fallback = False
         self.repo = Path(repo).resolve()
         fallback_stats = self._fallback.index(self.repo)
         client = self._mcp_client()
@@ -150,8 +158,8 @@ class CortexProvider:
                 }
             except CortexMcpError as exc:
                 self._drop_mcp(f"cortex_refresh: {exc}")
-        reason = self._fallback_reason
-        if not self._using_fallback:
+        reason = None
+        if self._cli_available:
             reason = None
             budget = _timeout("ingest")
             try:
@@ -163,6 +171,8 @@ class CortexProvider:
                     timeout=budget,
                 )
                 if proc.returncode == 0:
+                    self._using_fallback = False
+                    self._fallback_reason = None
                     return self._json_or_status(proc.stdout, {"backend": self.backend, "indexed": True})
                 stderr = (getattr(proc, "stderr", "") or "").strip()
                 reason = f"cortex ingest exited {proc.returncode}" + (f": {stderr[:200]}" if stderr else "")
@@ -173,6 +183,8 @@ class CortexProvider:
                 )
             except Exception as exc:
                 reason = f"cortex ingest failed: {type(exc).__name__}: {exc}"
+        else:
+            reason = "cortex CLI not found on PATH"
         out = fallback_stats
         out["backend"] = "cortex-fallback-builtin"
         out["fallback_reason"] = reason
@@ -182,23 +194,32 @@ class CortexProvider:
         return out
 
     def graph_context(self, symbol: str) -> GraphContext:
+        self._using_fallback = False
         client = self._mcp_client()
         if client is not None:
             try:
                 ctx = self._graph_context_via_mcp(client, symbol)
                 if ctx is not None:
+                    self._using_fallback = False
+                    self._fallback_reason = None
                     return ctx
             except CortexMcpError as exc:
                 self._drop_mcp(f"graph context: {exc}")
-        if not self._using_fallback:
+        reason = None
+        if self._cli_available:
             try:
                 ctx = self._graph_context_via_export(symbol)
                 if ctx is not None:
+                    self._using_fallback = False
+                    self._fallback_reason = None
                     return ctx
             except Exception as exc:
-                self._using_fallback = True
-                self._fallback_reason = f"cortex graph export failed: {type(exc).__name__}"
-                _warn_fallback(self._fallback_reason)
+                reason = f"cortex graph export failed: {type(exc).__name__}"
+                _warn_fallback(reason)
+        else:
+            reason = "cortex CLI not found on PATH"
+        self._using_fallback = True
+        self._fallback_reason = reason
         ctx = self._fallback.graph_context(symbol)
         return GraphContext(
             symbol=ctx.symbol,
@@ -219,7 +240,7 @@ class CortexProvider:
             client,
             "cortex_search_symbols",
             {"repo_path": str(self.repo), "query": symbol, "limit": 20},
-            _timeout("graph"),
+            _timeout("mcp_query"),
         )
         items = [n for n in payload.get("items", []) if isinstance(n, dict)]
         matches = [n for n in items if n.get("label") == symbol]
@@ -242,7 +263,7 @@ class CortexProvider:
             client,
             "cortex_references",
             {"repo_path": str(self.repo), "symbol": symbol},
-            _timeout("graph"),
+            _timeout("mcp_query"),
         )
         buckets = refs.get("items") if isinstance(refs.get("items"), dict) else {}
         definition_sites = {(d["file"], d["line"]) for d in definitions}
@@ -296,7 +317,7 @@ class CortexProvider:
                         "direction": "out",
                         "limit": 200,
                     },
-                    _timeout("graph"),
+                    _timeout("mcp_query"),
                 )
             except CortexMcpError as exc:
                 if not self._relations_warned:
@@ -366,13 +387,18 @@ class CortexProvider:
         )
 
     def search(self, query: str, k: int = 10) -> list[SearchHit]:
+        self._using_fallback = False
         client = self._mcp_client()
         if client is not None:
             try:
-                return self._search_via_mcp(client, query, k)
+                hits = self._search_via_mcp(client, query, k)
+                self._using_fallback = False
+                self._fallback_reason = None
+                return hits
             except CortexMcpError as exc:
                 self._drop_mcp(f"cortex_query: {exc}")
-        if not self._using_fallback:
+        reason = None
+        if self._cli_available:
             try:
                 proc = subprocess.run(
                     ["cortex", "bundle", str(self.repo), "--task", query, "--format", "json", "--budget", "4000"],
@@ -392,11 +418,18 @@ class CortexProvider:
                         )
                         for item in data.get("items", [])
                     ]
+                    self._using_fallback = False
+                    self._fallback_reason = None
                     return dedupe_hits(hits, k)
+                stderr = (getattr(proc, "stderr", "") or "").strip()
+                reason = f"cortex bundle exited {proc.returncode}" + (f": {stderr[:200]}" if stderr else "")
             except Exception as exc:
-                self._using_fallback = True
-                self._fallback_reason = f"cortex bundle failed: {type(exc).__name__}"
-                _warn_fallback(self._fallback_reason)
+                reason = f"cortex bundle failed: {type(exc).__name__}"
+                _warn_fallback(reason)
+        else:
+            reason = "cortex CLI not found on PATH"
+        self._using_fallback = True
+        self._fallback_reason = reason
         return [
             SearchHit(hit.file, hit.line, hit.score, hit.snippet, "cortex-fallback-builtin")
             for hit in self._fallback.search(query, k)
@@ -407,7 +440,7 @@ class CortexProvider:
             client,
             "cortex_query",
             {"repo_path": str(self.repo), "task": query, "budget": 4000},
-            _timeout("bundle"),
+            _timeout("mcp_query"),
         )
         hits = [
             SearchHit(

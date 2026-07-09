@@ -12,6 +12,7 @@ from pathlib import Path
 from axon.index import RepoIndex
 from axon.sandbox import ensure_venv, run_in_sandbox
 from axon.store import default_venv_dir
+from axon.tools.run_tests import detect_test_runner, run_test_suite
 
 
 def spectrum_localize(
@@ -21,6 +22,17 @@ def spectrum_localize(
     top: int = 20,
 ) -> dict:
     root = Path(repo).resolve()
+    runner = detect_test_runner(root)
+    if runner["kind"] != "pytest":
+        ctest_results = [run_test_suite(root, test, 30) for test in failing_tests]
+        return {
+            "suspects": [],
+            "functions": [],
+            "passing_used": passing_tests or [],
+            "degraded": True,
+            "note": "spectrum coverage is unsupported for ctest/C++ projects; returning ctest pass/fail results only",
+            "test_results": ctest_results,
+        }
     passing_used = passing_tests or _auto_passing_tests(root, failing_tests)
     try:
         failed_traces = [_trace_test(root, test) for test in failing_tests]

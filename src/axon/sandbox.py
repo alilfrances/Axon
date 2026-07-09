@@ -56,11 +56,14 @@ def run_in_sandbox(
             duration,
             True,
         )
+    except OSError as exc:
+        duration = time.monotonic() - start
+        return SandboxResult(cmd, str(cwd), 127, "", _cap(str(exc)), duration, False)
 
 
 def ensure_venv(repo: Path, path: Path) -> Path:
-    """Create an ephemeral venv, best-effort editable-install the repo, and
-    return an interpreter that can run pytest.
+    """Create an ephemeral Python venv, best-effort editable-install the repo,
+    and return an interpreter that can run pytest.
 
     The sandbox venv rarely ships pytest, so install it there when missing; if
     that can't happen (e.g. offline) fall back to the interpreter running Axon

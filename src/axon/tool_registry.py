@@ -48,7 +48,9 @@ def index_repo(repo: str) -> dict:
 
 
 def graph_context(repo: str, symbol: str) -> dict:
-    return asdict(_provider(repo).graph_context(symbol))
+    provider = _provider(repo)
+    result = asdict(provider.graph_context(symbol))
+    return _with_provider_status(result, provider)
 
 
 def search(repo: str, query: str, k: int = 10) -> list[dict]:
@@ -57,6 +59,9 @@ def search(repo: str, query: str, k: int = 10) -> list[dict]:
 
 def status(repo: str) -> dict:
     provider = _provider(repo)
+    mcp_client = getattr(provider, "_mcp_client", None)
+    if callable(mcp_client) and getattr(provider, "_mcp_state", None) == "untried":
+        mcp_client()
     root = Path(repo).resolve()
     return {
         "backend": _active_backend(provider),
@@ -73,7 +78,7 @@ def run_tests(repo: str, test_target: str | None = None, timeout_s: int = 120) -
 def localize(repo: str, bug_text: str, k: int = 10, failing_test: str | None = None) -> dict:
     provider = _provider(repo)
     index = _repo_index(provider, Path(repo))
-    return localize_tool(provider, index, bug_text, k, failing_test)
+    return _with_provider_status(localize_tool(provider, index, bug_text, k, failing_test), provider)
 
 
 def repro(repo: str, bug_slug: str, test_body: str | None = None) -> dict:
@@ -99,7 +104,7 @@ def inspect(repo: str, test_target: str, timeout: int = 120) -> dict:
 def investigate(repo: str, bug_text: str, failing_test: str | None = None, k: int = 5) -> dict:
     provider = _provider(repo)
     index = _repo_index(provider, Path(repo))
-    return investigate_tool(provider, index, repo, bug_text, failing_test, k)
+    return _with_provider_status(investigate_tool(provider, index, repo, bug_text, failing_test, k), provider)
 
 
 def sast_scan(repo: str, timeout: int = 60) -> dict:
@@ -130,10 +135,20 @@ def _repo_index(provider: ContextProvider, repo: Path) -> RepoIndex:
 def _active_backend(provider: ContextProvider) -> str:
     if getattr(provider, "_using_fallback", False):
         return "cortex-fallback-builtin"
+    if getattr(provider, "_fallback_reason", None):
+        return "cortex-fallback-builtin"
     mcp_state = getattr(provider, "_mcp_state", None)
+    if mcp_state == "untried":
+        return "cortex-untried"
     if mcp_state == "ready":
         return getattr(provider, "mcp_backend", provider.backend)
     return provider.backend
+
+
+def _with_provider_status(result: dict, provider: ContextProvider) -> dict:
+    result["backend"] = _active_backend(provider)
+    result["fallback_reason"] = getattr(provider, "_fallback_reason", None)
+    return result
 
 
 def _schema(properties: dict[str, dict[str, Any]], required: list[str]) -> dict[str, Any]:
@@ -217,7 +232,7 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         _schema({"repo": _STRING, "bug_text": _STRING, "failing_test": _STRING, "k": _INTEGER}, ["repo", "bug_text"]),
     ),
     ToolSpec("sast_scan", sast_scan, "Run configured static analysis and return normalized findings.", _schema({"repo": _STRING, "timeout": _INTEGER}, ["repo"])),
-    ToolSpec("refute", refute, "Try to disprove or confirm a security finding.", _schema({"repo": _STRING, "finding": {"type": "object"}, "mode": _STRING}, ["repo", "finding"])),
+    ToolSpec("refute", refute, "Try to disprove or confirm a security finding.", _schema({"repo": _STRING, "finding": {"type": "object"}, "mode": {"type": "string", "description": "Refutation mode; currently only 'static' is supported."}}, ["repo", "finding"])),
     ToolSpec("triage", triage, "Run static scan and adversarial triage for a repository.", _schema({"repo": _STRING}, ["repo"])),
 )
 

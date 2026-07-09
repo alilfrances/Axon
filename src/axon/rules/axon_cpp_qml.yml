@@ -1,0 +1,113 @@
+rules:
+  - id: axon.cpp.cwe-120.unsafe-string-copy
+    languages: [cpp]
+    severity: ERROR
+    message: "CWE-120: unbounded C string copy can overflow the destination buffer"
+    metadata:
+      cwe: "CWE-120"
+    paths:
+      include:
+        - "*.c"
+        - "*.cc"
+        - "*.cpp"
+        - "*.cxx"
+        - "*.h"
+        - "*.hpp"
+    pattern-either:
+      - pattern: strcpy($DST, $SRC)
+      - pattern: strcat($DST, $SRC)
+      - pattern: sprintf($DST, $FMT, ...)
+      - pattern: gets($DST)
+
+  - id: axon.cpp.cwe-134.nonliteral-format-string
+    languages: [cpp]
+    severity: ERROR
+    message: "CWE-134: non-literal format string may allow attacker-controlled formatting"
+    metadata:
+      cwe: "CWE-134"
+    paths:
+      include:
+        - "*.c"
+        - "*.cc"
+        - "*.cpp"
+        - "*.cxx"
+        - "*.h"
+        - "*.hpp"
+    patterns:
+      - pattern-either:
+          - pattern: printf($FMT, ...)
+          - pattern: fprintf($STREAM, $FMT, ...)
+          - pattern: sprintf($DST, $FMT, ...)
+          - pattern: snprintf($DST, $SIZE, $FMT, ...)
+      - pattern-not: printf("...", ...)
+      - pattern-not: fprintf($STREAM, "...", ...)
+      - pattern-not: sprintf($DST, "...", ...)
+      - pattern-not: snprintf($DST, $SIZE, "...", ...)
+
+  - id: axon.cpp.cwe-120.memcpy-sizeof-source
+    languages: [cpp]
+    severity: WARNING
+    message: "CWE-120: memcpy sized from the source expression can overflow a smaller destination"
+    metadata:
+      cwe: "CWE-120"
+    paths:
+      include:
+        - "*.c"
+        - "*.cc"
+        - "*.cpp"
+        - "*.cxx"
+        - "*.h"
+        - "*.hpp"
+    pattern: memcpy($DST, $SRC, sizeof($SRC))
+
+  - id: axon.cpp.cwe-416.use-after-delete
+    languages: [cpp]
+    severity: ERROR
+    message: "CWE-416: pointer is dereferenced after delete in the same control-flow region"
+    metadata:
+      cwe: "CWE-416"
+    paths:
+      include:
+        - "*.cc"
+        - "*.cpp"
+        - "*.cxx"
+        - "*.h"
+        - "*.hpp"
+    pattern-either:
+      - pattern: |
+          delete $PTR;
+          ...
+          $PTR->$MEMBER
+      - pattern: |
+          delete $PTR;
+          ...
+          *$PTR
+
+  - id: axon.cpp.cwe-787.unchecked-pointer-arithmetic-write
+    languages: [cpp]
+    severity: WARNING
+    message: "CWE-787: pointer arithmetic write should be bounds-checked"
+    metadata:
+      cwe: "CWE-787"
+    paths:
+      include:
+        - "*.c"
+        - "*.cc"
+        - "*.cpp"
+        - "*.cxx"
+        - "*.h"
+        - "*.hpp"
+    pattern-either:
+      - pattern: "*($PTR + $OFFSET) = $VALUE"
+      - pattern: "$PTR[$OFFSET] = $VALUE"
+
+  - id: axon.qml.cwe-95.eval-like-code-execution
+    languages: [generic]
+    severity: ERROR
+    message: "CWE-95: QML evaluates dynamically constructed code"
+    metadata:
+      cwe: "CWE-95"
+    paths:
+      include:
+        - "*.qml"
+    pattern-regex: "\\b(eval|Qt\\.createQmlObject)\\s*\\("

@@ -1,17 +1,27 @@
-"""Offline SAST scan over bundled Axon Python rules."""
+"""Offline SAST scan over bundled Axon rules."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
 import sys
 import time
+from collections import Counter
 from importlib import resources
 from pathlib import Path
+
+from axon.parsing import iter_source_files
+
+_LOG = logging.getLogger(__name__)
+
+_PYTHON_EXTENSIONS = frozenset({".py"})
+_CPP_QML_EXTENSIONS = frozenset({".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".qml"})
+_SAST_EXTENSIONS = _PYTHON_EXTENSIONS | _CPP_QML_EXTENSIONS
 
 _RULES = [
     ("axon.python.cwe-78.subprocess-shell-true", "CWE-78", "ERROR", "subprocess with shell=True", re.compile(r"subprocess\.(?:run|call|Popen)\(.*shell\s*=\s*True")),
@@ -30,9 +40,9 @@ def bundled_rules_path() -> Path:
 
 def sast_scan(repo: str, timeout: int = 60) -> dict:
     root = Path(repo).resolve()
-    config = bundled_rules_path()
+    configs = _bundled_rules_paths(root)
     semgrep = _semgrep_binary()
-    command = [semgrep or "semgrep", "--config", str(config), "--json", "--metrics=off", str(root)]
+    command = _semgrep_command(semgrep or "semgrep", configs, root)
     start = time.monotonic()
     semgrep_error = None
     findings: list[dict]
@@ -61,19 +71,46 @@ def sast_scan(repo: str, timeout: int = 60) -> dict:
         backend = "python-fallback"
     warning = _fallback_warning(backend, semgrep, semgrep_error)
     if warning:
-        print(f"Axon sast_scan: {warning}", file=sys.stderr, flush=True)
+        _LOG.warning("Axon sast_scan: %s", warning)
+    config_values = [str(config) for config in configs]
+    degraded = backend == "python-fallback"
     return {
         "findings": findings,
         "count": len(findings),
         "repo": str(root),
-        "config": str(config),
+        "config": config_values[0] if len(config_values) == 1 else config_values,
+        "configs": config_values,
         "command": command,
         "backend": backend,
         "semgrep_available": semgrep is not None,
         "semgrep_error": semgrep_error,
         "warning": warning,
+        "degraded": degraded,
+        "degraded_reason": warning if degraded else None,
         "duration_s": time.monotonic() - start,
     }
+
+
+def _bundled_rules_paths(root: Path) -> list[Path]:
+    counts = _source_extension_counts(root)
+    rules = []
+    if any(counts[ext] for ext in _PYTHON_EXTENSIONS):
+        rules.append(bundled_rules_path())
+    if any(counts[ext] for ext in _CPP_QML_EXTENSIONS):
+        rules.append(Path(resources.files("axon").joinpath("rules", "axon_cpp_qml.yml")))
+    return rules or [bundled_rules_path()]
+
+
+def _source_extension_counts(root: Path) -> Counter[str]:
+    return Counter(path.suffix for path in iter_source_files(root, _SAST_EXTENSIONS))
+
+
+def _semgrep_command(binary: str, configs: list[Path], root: Path) -> list[str]:
+    command = [binary]
+    for config in configs:
+        command.extend(["--config", str(config)])
+    command.extend(["--json", "--metrics=off", str(root)])
+    return command
 
 
 def _fallback_warning(backend: str, semgrep: str | None, semgrep_error: str | None) -> str | None:
