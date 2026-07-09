@@ -1,3 +1,3 @@
 """Axon — root-cause debugging & vulnerability MCP server for AI agents."""
 
-__version__ = "0.5.8"
+__version__ = "0.5.11"

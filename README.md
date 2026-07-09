@@ -69,10 +69,13 @@ codex plugin marketplace install <path-or-git-url-of-this-repo>
 
 Plugin startup needs `python3` and does not run `pip` or create a venv.
 Semgrep-backed SAST is optional: install `semgrep` on `PATH` to enable it.
+Codex installs plugins into its local plugin cache; after updating Axon, run
+`codex plugin marketplace upgrade axon` and restart Codex so the MCP server is
+loaded from the refreshed cache.
 
 Versioning: Axon uses semver; bump `pyproject.toml`,
-`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
-`.codex-plugin/plugin.json`, and `.agents/plugins/marketplace.json` together on
+`src/axon/__init__.py`, `.claude-plugin/plugin.json`,
+`.claude-plugin/marketplace.json`, and `.codex-plugin/plugin.json` together on
 release.
 
 ## Status
