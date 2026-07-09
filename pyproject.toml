@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "axon-debug"
-version = "0.5.5"
+version = "0.5.6"
 description = "Axon — root-cause debugging & vulnerability MCP server for AI agents. Standalone; Cortex-accelerated when present."
 readme = "README.md"
 requires-python = ">=3.10"
