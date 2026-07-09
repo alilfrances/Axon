@@ -22,8 +22,10 @@ _FRAME_RE = re.compile(r'File "([^"]+\.py)", line (\d+), in ([A-Za-z_][A-Za-z0-9
 _WEIGHTS = {
     "traceback": 3.0,
     "path": 2.5,
+    "filename": 2.0,
     "spectrum": 2.0,
     "symbol": 1.5,
+    "ident_search": 1.4,
     "search": 1.2,
     "bm25": 1.0,
     "graph": 0.7,
@@ -79,8 +81,10 @@ def localize(
     ranked_lists = [
         ("traceback", _traceback_candidates(signals["tracebacks"])),
         ("path", _path_candidates(index, signals)),
+        ("filename", _filename_candidates(index, signals["strong_identifiers"])),
         ("symbol", _symbol_candidates(index, signals["strong_identifiers"])),
         ("search", _search_candidates(provider, bug_text, max(k * 3, 10))),
+        ("ident_search", _identifier_search_candidates(provider, signals["strong_identifiers"], max(k * 3, 10))),
         ("bm25", _bm25_candidates(provider, bug_text, signals, max(k * 3, 10))),
         ("graph", _graph_candidates(provider, signals["strong_identifiers"])),
         ("recency", _recency_candidates(str(index.repo_root))),
@@ -280,6 +284,22 @@ def _path_components(path: str) -> set[str]:
     return {part.lower() for part in re.split(r"[/_.]+", stem) if part}
 
 
+def _filename_candidates(index: RepoIndex, identifiers: list[str]) -> list[dict]:
+    strong_terms = {ident.lower() for ident in identifiers}
+    if not strong_terms:
+        return []
+    out: list[dict] = []
+    for (file,) in index.conn.execute("SELECT path FROM files ORDER BY path").fetchall():
+        if _basename_stem(file).lower() in strong_terms:
+            out.append({"file": file, "line": 1, "evidence": "identifier matches filename"})
+    return out
+
+
+def _basename_stem(path: str) -> str:
+    name = path.rsplit("/", 1)[-1]
+    return name.rsplit(".", 1)[0] if "." in name else name
+
+
 def _search_candidates(provider: ContextProvider, bug_text: str, k: int) -> list[dict]:
     # Plain query, same as the standalone `search` tool — bm25's term-stuffed
     # query below can rank differently, so this seeds the fusion with the
@@ -291,6 +311,23 @@ def _search_candidates(provider: ContextProvider, bug_text: str, k: int) -> list
                 "file": hit.file,
                 "line": hit.line,
                 "evidence": f"search rank {rank}",
+                "raw_score": float(hit.score),
+            }
+        )
+    return out
+
+
+def _identifier_search_candidates(provider: ContextProvider, identifiers: list[str], k: int) -> list[dict]:
+    if not identifiers:
+        return []
+    query = " ".join(identifiers)
+    out: list[dict] = []
+    for rank, hit in enumerate(provider.search(query, k), 1):
+        out.append(
+            {
+                "file": hit.file,
+                "line": hit.line,
+                "evidence": f"identifier search rank {rank}",
                 "raw_score": float(hit.score),
             }
         )
@@ -516,12 +553,24 @@ def _score_norms(candidates: list[dict]) -> dict[int, float]:
     lo = min(values)
     hi = max(values)
     if hi > lo:
+        median = _median(values)
+        if median > 0 and hi > 5 * median:
+            hi = max(lo, median * 3)
+            lo = min(lo, 0.0)
         return {cand_id: max(0.0, min(1.0, (score - lo) / (hi - lo))) for cand_id, score in scored}
     norm = 1.0 if hi >= _BM25_LOW_SCORE_THRESHOLD else 0.0
     return {cand_id: norm for cand_id, _ in scored}
 
 
-_LEXICAL_SOURCES = {"bm25", "search"}
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+_LEXICAL_SOURCES = {"bm25", "ident_search", "search"}
 
 
 def _confidence(

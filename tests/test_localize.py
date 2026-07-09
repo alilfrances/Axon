@@ -5,11 +5,13 @@ import subprocess
 
 from axon.bm25 import BM25Hit
 from axon.index import RepoIndex
+from axon.parsing import FileFacts, PythonAstParser
 from axon.providers.base import GraphContext, SearchHit
 from axon.providers.builtin import BuiltinProvider
+from axon.providers.cortex import _prefer_basename_definition
 from axon import server
 import axon.tools.localize as localize_tool
-from axon.tools.localize import _extract_signals, _fuse, _symbol_candidates, localize
+from axon.tools.localize import _extract_signals, _fuse, _score_norms, _symbol_candidates, localize
 
 
 class FloodProvider(BuiltinProvider):
@@ -71,6 +73,60 @@ class LexicalJunkProvider(BuiltinProvider):
         return [SearchHit(file="pkg/junk.py", line=1, score=1.0, snippet="", backend=self.backend)]
 
     def graph_context(self, symbol: str) -> GraphContext:
+        return GraphContext(symbol=symbol, backend=self.backend)
+
+
+class TextFixtureParser(PythonAstParser):
+    extensions = (".py", ".qml", ".cpp")
+
+    def parse_file(self, path: Path, repo_root: Path) -> FileFacts:
+        if path.suffix == ".py":
+            return super().parse_file(path, repo_root)
+        return FileFacts(file=str(path.relative_to(repo_root)))
+
+
+class DeviceCardBugProvider(BuiltinProvider):
+    def search(self, query: str, k: int = 10) -> list[SearchHit]:
+        ident_query = (
+            "DeviceCardTagSelection" in query
+            and "forceActiveFocus" in query
+            and "unrelated large native device file" not in query
+        )
+        if ident_query:
+            hits = [
+                SearchHit(
+                    file="ui/qml/windows/settings/DeviceCardTagSelection.qml",
+                    line=12,
+                    score=18.0,
+                    snippet="DeviceCardTagSelection forceActiveFocus",
+                    backend=self.backend,
+                ),
+                SearchHit(file="src/device/idevice.cpp", line=900, score=6.0, snippet="", backend=self.backend),
+            ]
+        else:
+            hits = [
+                SearchHit(file="src/device/idevice.cpp", line=900, score=552.0, snippet="", backend=self.backend),
+                SearchHit(
+                    file="ui/qml/windows/settings/DeviceCardTagSelection.qml",
+                    line=12,
+                    score=8.0,
+                    snippet="forceActiveFocus",
+                    backend=self.backend,
+                ),
+                SearchHit(file="ui/qml/windows/settings/DeviceCardDisplaySection.qml", line=20, score=7.0, snippet="", backend=self.backend),
+            ]
+        return hits[:k]
+
+    def graph_context(self, symbol: str) -> GraphContext:
+        if symbol == "DeviceCardTagSelection":
+            return GraphContext(
+                symbol=symbol,
+                definitions=[
+                    {"name": symbol, "file": "ui/qml/windows/settings/DeviceCardDisplaySection.qml", "line": 20},
+                    {"name": symbol, "file": "ui/qml/windows/settings/DeviceCardTagSelection.qml", "line": 1},
+                ],
+                backend=self.backend,
+            )
         return GraphContext(symbol=symbol, backend=self.backend)
 
 
@@ -291,6 +347,71 @@ def test_fuse_demotes_near_zero_bm25_rank_one_below_stronger_signals():
     assert [item["file"] for item in result] == ["target.py", "graph.py", "junk.py"]
     assert result[0]["confidence"] == "medium"
     assert result[2]["confidence"] == "low"
+
+
+def test_score_norm_clamps_god_file_outlier():
+    candidates = [
+        {"file": "src/device/idevice.cpp", "raw_score": 552.0},
+        {"file": "ui/qml/windows/settings/DeviceCardTagSelection.qml", "raw_score": 8.0},
+        {"file": "ui/qml/windows/settings/DeviceCardDisplaySection.qml", "raw_score": 7.0},
+    ]
+
+    norms = _score_norms(candidates)
+
+    assert norms[id(candidates[1])] >= 0.3
+
+
+def test_localize_identifier_query_and_filename_surface_qml_over_god_file(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "ui" / "qml" / "windows" / "settings").mkdir(parents=True)
+    (repo / "src" / "device").mkdir(parents=True)
+    (repo / "ui" / "qml" / "windows" / "settings" / "DeviceCardTagSelection.qml").write_text(
+        "Item {\n    function openEditor() { forceActiveFocus() }\n}\n",
+        encoding="utf-8",
+    )
+    (repo / "ui" / "qml" / "windows" / "settings" / "DeviceCardDisplaySection.qml").write_text(
+        "DeviceCardTagSelection { }\n",
+        encoding="utf-8",
+    )
+    (repo / "src" / "device" / "idevice.cpp").write_text(
+        "\n".join(["// unrelated large native device file focus active selection"] * 200),
+        encoding="utf-8",
+    )
+    provider = DeviceCardBugProvider(repo)
+    index = RepoIndex(repo, parser=TextFixtureParser())
+    try:
+        index.refresh()
+        bug_text = (
+            "DeviceCustomField fails when DeviceCardTagSelection tries to call "
+            "forceActiveFocus after editing a tag. This verbose report also repeats "
+            "unrelated large native device file focus active selection text."
+        )
+
+        result = localize(provider, index, bug_text, k=3)
+
+        files = [suspect["file"] for suspect in result["suspects"]]
+        qml = "ui/qml/windows/settings/DeviceCardTagSelection.qml"
+        assert qml in files[:3]
+        assert files[0] != "src/device/idevice.cpp"
+        qml_suspect = next(suspect for suspect in result["suspects"] if suspect["file"] == qml)
+        assert "identifier matches filename" in qml_suspect["evidence"]
+        assert any("identifier search rank" in evidence for evidence in qml_suspect["evidence"])
+        assert "defines DeviceCardTagSelection (graph)" in qml_suspect["evidence"]
+    finally:
+        provider.close()
+        index.close()
+
+
+def test_cortex_definition_reorder_prefers_symbol_basename():
+    definitions = [
+        {"file": "ui/qml/windows/settings/DeviceCardDisplaySection.qml", "line": 20},
+        {"file": "ui/qml/windows/settings/DeviceCardTagSelection.qml", "line": 1},
+    ]
+
+    reordered = _prefer_basename_definition(definitions, "DeviceCardTagSelection")
+
+    assert reordered[0]["file"] == "ui/qml/windows/settings/DeviceCardTagSelection.qml"
+    assert {item["file"] for item in reordered} == {item["file"] for item in definitions}
 
 
 def test_localize_damps_lexical_weight_when_no_strong_identifiers(monkeypatch, tmp_path: Path):

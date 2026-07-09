@@ -270,6 +270,7 @@ class CortexProvider:
             }
             for n in matches
         ]
+        definitions = _prefer_basename_definition(definitions, symbol)
 
         refs = self._mcp_call(
             client,
@@ -373,6 +374,7 @@ class CortexProvider:
             {"file": n["source_ref"], "line": n.get("span_start") or n.get("metadata", {}).get("lineno", 1)}
             for n in matches
         ]
+        definitions = _prefer_basename_definition(definitions, symbol)
         target_ids = {n["node_id"] for n in matches}
 
         callers, callees, blast_radius = [], [], set()
@@ -499,3 +501,15 @@ def _endpoint_label(endpoint: str) -> str:
     if not isinstance(endpoint, str):
         return ""
     return endpoint.split(" @ ", 1)[0].strip()
+
+
+def _prefer_basename_definition(definitions: list[dict], symbol: str) -> list[dict]:
+    if len(definitions) <= 1:
+        return definitions
+    symbol_name = symbol.lower()
+    return sorted(definitions, key=lambda item: _basename_stem(str(item.get("file", ""))).lower() != symbol_name)
+
+
+def _basename_stem(path: str) -> str:
+    name = path.rsplit("/", 1)[-1]
+    return name.rsplit(".", 1)[0] if "." in name else name
