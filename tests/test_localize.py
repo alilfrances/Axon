@@ -130,6 +130,32 @@ class DeviceCardBugProvider(BuiltinProvider):
         return GraphContext(symbol=symbol, backend=self.backend)
 
 
+def _write_device_card_fixture(repo: Path) -> str:
+    (repo / "ui" / "qml" / "windows" / "settings").mkdir(parents=True)
+    (repo / "src" / "device").mkdir(parents=True)
+    (repo / "ui" / "qml" / "windows" / "settings" / "DeviceCardTagSelection.qml").write_text(
+        "Item {\n    function openEditor() { forceActiveFocus() }\n}\n",
+        encoding="utf-8",
+    )
+    (repo / "ui" / "qml" / "windows" / "settings" / "DeviceCardDisplaySection.qml").write_text(
+        "DeviceCardTagSelection { }\n",
+        encoding="utf-8",
+    )
+    (repo / "src" / "device" / "idevice.cpp").write_text(
+        "\n".join(["// unrelated large native device file focus active selection"] * 200),
+        encoding="utf-8",
+    )
+    return "ui/qml/windows/settings/DeviceCardTagSelection.qml"
+
+
+def _device_card_bug_text() -> str:
+    return (
+        "DeviceCustomField fails when DeviceCardTagSelection tries to call "
+        "forceActiveFocus after editing a tag. This verbose report also repeats "
+        "unrelated large native device file focus active selection text."
+    )
+
+
 def test_localize_traceback_ranks_frame_file_first(fixture_repo):
     repo = fixture_repo()
     provider = BuiltinProvider(repo)
@@ -363,40 +389,42 @@ def test_score_norm_clamps_god_file_outlier():
 
 def test_localize_identifier_query_and_filename_surface_qml_over_god_file(tmp_path: Path):
     repo = tmp_path / "repo"
-    (repo / "ui" / "qml" / "windows" / "settings").mkdir(parents=True)
-    (repo / "src" / "device").mkdir(parents=True)
-    (repo / "ui" / "qml" / "windows" / "settings" / "DeviceCardTagSelection.qml").write_text(
-        "Item {\n    function openEditor() { forceActiveFocus() }\n}\n",
-        encoding="utf-8",
-    )
-    (repo / "ui" / "qml" / "windows" / "settings" / "DeviceCardDisplaySection.qml").write_text(
-        "DeviceCardTagSelection { }\n",
-        encoding="utf-8",
-    )
-    (repo / "src" / "device" / "idevice.cpp").write_text(
-        "\n".join(["// unrelated large native device file focus active selection"] * 200),
-        encoding="utf-8",
-    )
+    qml = _write_device_card_fixture(repo)
     provider = DeviceCardBugProvider(repo)
     index = RepoIndex(repo, parser=TextFixtureParser())
     try:
         index.refresh()
-        bug_text = (
-            "DeviceCustomField fails when DeviceCardTagSelection tries to call "
-            "forceActiveFocus after editing a tag. This verbose report also repeats "
-            "unrelated large native device file focus active selection text."
-        )
 
-        result = localize(provider, index, bug_text, k=3)
+        result = localize(provider, index, _device_card_bug_text(), k=3)
 
         files = [suspect["file"] for suspect in result["suspects"]]
-        qml = "ui/qml/windows/settings/DeviceCardTagSelection.qml"
         assert qml in files[:3]
-        assert files[0] != "src/device/idevice.cpp"
+        assert files[0] == qml
         qml_suspect = next(suspect for suspect in result["suspects"] if suspect["file"] == qml)
         assert "identifier matches filename" in qml_suspect["evidence"]
         assert any("identifier search rank" in evidence for evidence in qml_suspect["evidence"])
         assert "defines DeviceCardTagSelection (graph)" in qml_suspect["evidence"]
+    finally:
+        provider.close()
+        index.close()
+
+
+def test_localize_filename_and_path_candidates_use_repo_files_without_parser_override(tmp_path: Path):
+    repo = tmp_path / "repo"
+    qml = _write_device_card_fixture(repo)
+    provider = DeviceCardBugProvider(repo)
+    index = RepoIndex(repo)
+    try:
+        index.refresh()
+        assert index.conn.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
+
+        result = localize(provider, index, _device_card_bug_text(), k=3)
+
+        files = [suspect["file"] for suspect in result["suspects"]]
+        assert files[0] == qml
+        qml_suspect = next(suspect for suspect in result["suspects"] if suspect["file"] == qml)
+        assert "identifier matches filename" in qml_suspect["evidence"]
+        assert any("path components match" in evidence for evidence in qml_suspect["evidence"])
     finally:
         provider.close()
         index.close()

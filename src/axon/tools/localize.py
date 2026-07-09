@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 
 from axon.bm25 import tokenize
 from axon.index import RepoIndex
+from axon.parsing import TEXT_EXTENSIONS, iter_source_files
 from axon.providers.base import ContextProvider
 
 _IDENT_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]{2,}\b")
@@ -78,6 +79,8 @@ def localize(
     if lexical_weight_reduced:
         weights["bm25"] *= 0.5
         weights["search"] *= 0.5
+    elif signals["strong_identifiers"]:
+        weights["search"] *= 0.6
     ranked_lists = [
         ("traceback", _traceback_candidates(signals["tracebacks"])),
         ("path", _path_candidates(index, signals)),
@@ -239,7 +242,7 @@ def _symbol_candidates(index: RepoIndex, identifiers: list[str]) -> list[dict]:
 
 
 def _path_candidates(index: RepoIndex, signals: dict) -> list[dict]:
-    files = sorted(row[0] for row in index.conn.execute("SELECT path FROM files").fetchall())
+    files = _all_repo_files(index)
     out: list[dict] = []
     seen: set[str] = set()
 
@@ -289,10 +292,14 @@ def _filename_candidates(index: RepoIndex, identifiers: list[str]) -> list[dict]
     if not strong_terms:
         return []
     out: list[dict] = []
-    for (file,) in index.conn.execute("SELECT path FROM files ORDER BY path").fetchall():
+    for file in _all_repo_files(index):
         if _basename_stem(file).lower() in strong_terms:
             out.append({"file": file, "line": 1, "evidence": "identifier matches filename"})
     return out
+
+
+def _all_repo_files(index: RepoIndex) -> list[str]:
+    return sorted(str(path.relative_to(index.repo_root)) for path in iter_source_files(index.repo_root, TEXT_EXTENSIONS))
 
 
 def _basename_stem(path: str) -> str:
@@ -555,8 +562,9 @@ def _score_norms(candidates: list[dict]) -> dict[int, float]:
     if hi > lo:
         median = _median(values)
         if median > 0 and hi > 5 * median:
-            hi = max(lo, median * 3)
+            clamped_hi = max(lo, median * 3)
             lo = min(lo, 0.0)
+            return {cand_id: max(0.0, min(0.6, (score - lo) / (clamped_hi - lo))) for cand_id, score in scored}
         return {cand_id: max(0.0, min(1.0, (score - lo) / (hi - lo))) for cand_id, score in scored}
     norm = 1.0 if hi >= _BM25_LOW_SCORE_THRESHOLD else 0.0
     return {cand_id: norm for cand_id, _ in scored}
