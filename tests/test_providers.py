@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from types import SimpleNamespace
 
@@ -214,3 +215,58 @@ def test_builtin_graph_context_notes_missing_symbol(fixture_repo):
         assert "indexed" in ctx.note
     finally:
         provider.close()
+
+
+def test_cortex_export_graph_context_uses_dict_callers(monkeypatch, fixture_repo):
+    repo = fixture_repo()
+    provider = CortexProvider(repo)
+    payload = {
+        "nodes": [
+            {
+                "node_id": "target",
+                "label": "divide",
+                "source_ref": "calc/core.py",
+                "granularity": "symbol",
+                "span_start": 4,
+            },
+            {
+                "node_id": "caller",
+                "label": "ratio",
+                "source_ref": "calc/api.py",
+                "span_start": 3,
+            },
+        ],
+        "edges": [{"source": "caller", "target": "target"}],
+    }
+
+    def fake_run(cmd, **kwargs):
+        out_path = cmd[cmd.index("--out") + 1]
+        with open(out_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("axon.providers.cortex.subprocess.run", fake_run)
+
+    ctx = provider._graph_context_via_export("divide")
+
+    assert ctx is not None
+    assert ctx.callers == [{"file": "calc/api.py", "caller": "ratio", "line": 3}]
+
+
+def test_cortex_graph_context_miss_keeps_mcp_backend_without_fallback(monkeypatch, fixture_repo):
+    repo = fixture_repo()
+    provider = CortexProvider(repo)
+    provider._cli_available = True
+    provider._fallback_reason = "previous outage"
+    monkeypatch.setattr(provider, "_mcp_client", lambda: object())
+    monkeypatch.setattr(provider, "_graph_context_via_mcp", lambda client, symbol: None)
+    monkeypatch.setattr(provider, "_graph_context_via_export", lambda symbol: None)
+
+    ctx = provider.graph_context("MissingSymbol")
+
+    assert provider._using_fallback is False
+    assert provider._fallback_reason == "previous outage"
+    assert ctx.degraded is True
+    assert ctx.backend == provider.mcp_backend
+    assert ctx.definitions == []
+    assert "symbol 'MissingSymbol' not in cortex graph" == ctx.note

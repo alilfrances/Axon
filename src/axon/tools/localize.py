@@ -50,6 +50,7 @@ class _Candidate:
     line: int
     score: float
     evidence: list[str] = field(default_factory=list)
+    sources: set[str] = field(default_factory=set)
     line_weight: float = 0.0
     line_rank: int = 0
 
@@ -80,11 +81,15 @@ def localize(
     note = "deterministic ranking; agent should rerank with reasoning"
     if spectrum_note:
         note = f"{note}; {spectrum_note}"
+    low_confidence = bool(suspects and suspects[0].get("confidence") == "low")
+    if low_confidence:
+        note = f"{note}; top suspect low-confidence (single-signal)"
     return {
         "suspects": suspects,
         "k": k,
         "signals": signals,
         "failing_test": failing_test,
+        "low_confidence": low_confidence,
         "note": note,
     }
 
@@ -298,13 +303,17 @@ def _graph_candidates(provider: ContextProvider, identifiers: list[str]) -> list
                     }
                 )
         for caller in ctx.callers:
-            key = (caller["file"], 1, f"caller:{ident}")
+            cfile = caller.get("file") if isinstance(caller, dict) else caller
+            if not cfile:
+                continue
+            cline = int(caller.get("line", 1)) if isinstance(caller, dict) else 1
+            key = (cfile, 1, f"caller:{ident}")
             if key not in seen:
                 seen.add(key)
                 out.append(
                     {
-                        "file": caller["file"],
-                        "line": int(caller.get("line", 1)),
+                        "file": cfile,
+                        "line": cline,
                         "evidence": f"calls {ident} (graph)",
                     }
                 )
@@ -428,6 +437,7 @@ def _fuse(ranked_lists: list[tuple[str, list[dict]]], k: int) -> list[dict]:
                 current.line = int(cand.get("line", 1))
                 current.line_weight = weight
                 current.line_rank = rank
+            current.sources.add(source)
             if len(current.evidence) < 8:
                 current.evidence.append(cand["evidence"])
     suspects = sorted(
@@ -440,6 +450,15 @@ def _fuse(ranked_lists: list[tuple[str, list[dict]]], k: int) -> list[dict]:
             "line": cand.line,
             "score": round(cand.score, 6),
             "evidence": cand.evidence,
+            "confidence": _confidence(cand.sources),
         }
         for cand in suspects[:k]
     ]
+
+
+def _confidence(sources: set[str]) -> str:
+    if len(sources) == 1:
+        return "low"
+    if len(sources) == 2:
+        return "medium"
+    return "high"

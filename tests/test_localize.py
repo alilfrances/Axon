@@ -29,6 +29,22 @@ class FloodProvider(BuiltinProvider):
         return GraphContext(symbol=symbol, blast_radius=[f"noise/graph_{idx}.py" for idx in range(30)])
 
 
+class StringCallerProvider(BuiltinProvider):
+    def search(self, query: str, k: int = 10) -> list[SearchHit]:
+        return []
+
+    def graph_context(self, symbol: str) -> GraphContext:
+        return GraphContext(symbol=symbol, callers=["pkg/caller.py"], backend=self.backend)
+
+
+class Bm25OnlyProvider(BuiltinProvider):
+    def search(self, query: str, k: int = 10) -> list[SearchHit]:
+        return [SearchHit(file="pkg/only.py", line=3, score=1.0, snippet="", backend=self.backend)]
+
+    def graph_context(self, symbol: str) -> GraphContext:
+        return GraphContext(symbol=symbol, backend=self.backend)
+
+
 def test_localize_traceback_ranks_frame_file_first(fixture_repo):
     repo = fixture_repo()
     provider = BuiltinProvider(repo)
@@ -145,6 +161,24 @@ ZeroDivisionError: division by zero
         index.close()
 
 
+def test_localize_tolerates_string_graph_callers(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "pkg").mkdir(parents=True)
+    (repo / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "pkg" / "caller.py").write_text("def invoke():\n    return BrokenCaller()\n", encoding="utf-8")
+    provider = StringCallerProvider(repo)
+    index = RepoIndex(repo)
+    try:
+        index.refresh()
+        result = localize(provider, index, "BrokenCaller fails", k=3)
+
+        assert result["suspects"]
+        assert any(suspect["file"] == "pkg/caller.py" for suspect in result["suspects"])
+    finally:
+        provider.close()
+        index.close()
+
+
 def test_fuse_sums_weighted_rrf_across_sources():
     result = _fuse(
         [
@@ -161,6 +195,41 @@ def test_fuse_sums_weighted_rrf_across_sources():
     )
 
     assert [item["file"] for item in result] == ["both.py", "single.py"]
+    assert result[0]["confidence"] == "medium"
+    assert result[1]["confidence"] == "low"
+
+
+def test_fuse_marks_three_source_suspect_high_confidence():
+    result = _fuse(
+        [
+            ("traceback", [{"file": "target.py", "line": 2, "evidence": "traceback frame #1 in run"}]),
+            ("bm25", [{"file": "target.py", "line": 3, "evidence": "bm25 rank 1"}]),
+            ("graph", [{"file": "target.py", "line": 4, "evidence": "calls Widget (graph)"}]),
+        ],
+        k=1,
+    )
+
+    assert result[0]["confidence"] == "high"
+
+
+def test_localize_flags_lone_bm25_top_suspect_low_confidence(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "pkg").mkdir(parents=True)
+    (repo / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "pkg" / "only.py").write_text("def handle():\n    return 1\n", encoding="utf-8")
+    provider = Bm25OnlyProvider(repo)
+    index = RepoIndex(repo)
+    try:
+        index.refresh()
+        result = localize(provider, index, "WidgetFailure happens", k=3)
+
+        assert result["suspects"][0]["file"] == "pkg/only.py"
+        assert result["suspects"][0]["confidence"] == "low"
+        assert result["low_confidence"] is True
+        assert "top suspect low-confidence" in result["note"]
+    finally:
+        provider.close()
+        index.close()
 
 
 def test_stopwords_excluded_from_strong_identifiers():

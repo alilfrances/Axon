@@ -196,6 +196,7 @@ class CortexProvider:
     def graph_context(self, symbol: str) -> GraphContext:
         self._using_fallback = False
         client = self._mcp_client()
+        mcp_reachable = client is not None
         if client is not None:
             try:
                 ctx = self._graph_context_via_mcp(client, symbol)
@@ -218,6 +219,17 @@ class CortexProvider:
                 _warn_fallback(reason)
         else:
             reason = "cortex CLI not found on PATH"
+        if reason is None and mcp_reachable:
+            return GraphContext(
+                symbol=symbol,
+                definitions=[],
+                callers=[],
+                callees=[],
+                blast_radius=[],
+                degraded=True,
+                backend=self.mcp_backend,
+                note=f"symbol {symbol!r} not in cortex graph",
+            )
         self._using_fallback = True
         self._fallback_reason = reason
         ctx = self._fallback.graph_context(symbol)
@@ -368,7 +380,13 @@ class CortexProvider:
             if edge["target"] in target_ids:
                 caller = nodes.get(edge["source"])
                 if caller:
-                    callers.append(caller.get("label", edge["source"]))
+                    callers.append(
+                        {
+                            "file": caller.get("source_ref", edge["source"]),
+                            "caller": caller.get("label", edge["source"]),
+                            "line": caller.get("span_start") or caller.get("metadata", {}).get("lineno", 1),
+                        }
+                    )
                     blast_radius.add(caller.get("source_ref", edge["source"]))
             if edge["source"] in target_ids:
                 callee = nodes.get(edge["target"])
