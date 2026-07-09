@@ -24,6 +24,7 @@ _WEIGHTS = {
     "path": 2.5,
     "spectrum": 2.0,
     "symbol": 1.5,
+    "search": 1.2,
     "bm25": 1.0,
     "graph": 0.7,
     "recency": 0.5,
@@ -59,6 +60,7 @@ class _Candidate:
     line_rank: int = 0
     max_score_norm: float = 0.0
     max_raw_score: float = 0.0
+    bm25_pool_size: int = 0
 
 
 def localize(
@@ -73,6 +75,7 @@ def localize(
         ("traceback", _traceback_candidates(signals["tracebacks"])),
         ("path", _path_candidates(index, signals)),
         ("symbol", _symbol_candidates(index, signals["strong_identifiers"])),
+        ("search", _search_candidates(provider, bug_text, max(k * 3, 10))),
         ("bm25", _bm25_candidates(provider, bug_text, signals, max(k * 3, 10))),
         ("graph", _graph_candidates(provider, signals["strong_identifiers"])),
         ("recency", _recency_candidates(str(index.repo_root))),
@@ -270,6 +273,23 @@ def _path_components(path: str) -> set[str]:
     return {part.lower() for part in re.split(r"[/_.]+", stem) if part}
 
 
+def _search_candidates(provider: ContextProvider, bug_text: str, k: int) -> list[dict]:
+    # Plain query, same as the standalone `search` tool — bm25's term-stuffed
+    # query below can rank differently, so this seeds the fusion with the
+    # ranking a user would see from `search` directly.
+    out: list[dict] = []
+    for rank, hit in enumerate(provider.search(bug_text, k), 1):
+        out.append(
+            {
+                "file": hit.file,
+                "line": hit.line,
+                "evidence": f"search rank {rank}",
+                "raw_score": float(hit.score),
+            }
+        )
+    return out
+
+
 def _bm25_candidates(provider: ContextProvider, bug_text: str, signals: dict, k: int) -> list[dict]:
     terms = [
         *(signals["strong_identifiers"] * 3),
@@ -450,6 +470,8 @@ def _fuse(ranked_lists: list[tuple[str, list[dict]]], k: int) -> list[dict]:
                 current.line_weight = weight
                 current.line_rank = rank
             current.sources.add(source)
+            if source == "bm25":
+                current.bm25_pool_size = len(best_by_file)
             if len(current.evidence) < 8:
                 current.evidence.append(cand["evidence"])
     suspects = sorted(
@@ -462,7 +484,7 @@ def _fuse(ranked_lists: list[tuple[str, list[dict]]], k: int) -> list[dict]:
             "line": cand.line,
             "score": round(cand.score, 6),
             "evidence": cand.evidence,
-            "confidence": _confidence(cand.sources, cand.max_score_norm, cand.max_raw_score),
+            "confidence": _confidence(cand.sources, cand.max_score_norm, cand.max_raw_score, cand.bm25_pool_size),
         }
         for cand in suspects[:k]
     ]
@@ -481,12 +503,28 @@ def _score_norms(candidates: list[dict]) -> dict[int, float]:
     return {cand_id: norm for cand_id, _ in scored}
 
 
-def _confidence(sources: set[str], max_score_norm: float = 0.0, max_raw_score: float = 0.0) -> str:
-    if sources == {"bm25"}:
+_LEXICAL_SOURCES = {"bm25", "search"}
+
+
+def _confidence(
+    sources: set[str], max_score_norm: float = 0.0, max_raw_score: float = 0.0, bm25_pool_size: int = 0
+) -> str:
+    # bm25 and search both draw from the same underlying retrieval call, so
+    # agreeing on both is not independent confirmation — treat them as one
+    # signal family for confidence purposes.
+    if sources and sources <= _LEXICAL_SOURCES:
         if max_raw_score < _BM25_LOW_SCORE_THRESHOLD:
             return "low"
-        if max_raw_score >= _BM25_STRONG_SCORE_THRESHOLD and max_score_norm >= _BM25_STRONG_NORM_THRESHOLD:
+        # A pool of 1 means score_norm was assigned by the singleton fallback
+        # (1.0 whenever the lone hit clears the low-score floor), not by
+        # standing out among real peers — that can't earn "medium".
+        if (
+            bm25_pool_size > 1
+            and max_raw_score >= _BM25_STRONG_SCORE_THRESHOLD
+            and max_score_norm >= _BM25_STRONG_NORM_THRESHOLD
+        ):
             return "medium"
+        return "low"
     if len(sources) == 1:
         return "low"
     if len(sources) == 2:
@@ -495,7 +533,9 @@ def _confidence(sources: set[str], max_score_norm: float = 0.0, max_raw_score: f
 
 
 def _confidence_tier(cand: _Candidate) -> int:
-    return {"low": 0, "medium": 1, "high": 2}[_confidence(cand.sources, cand.max_score_norm, cand.max_raw_score)]
+    return {"low": 0, "medium": 1, "high": 2}[
+        _confidence(cand.sources, cand.max_score_norm, cand.max_raw_score, cand.bm25_pool_size)
+    ]
 
 
 def _fuse_sort_key(cand: _Candidate) -> tuple:

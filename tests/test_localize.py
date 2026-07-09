@@ -251,7 +251,10 @@ def test_fuse_demotes_near_zero_bm25_rank_one_below_stronger_signals():
     assert result[2]["confidence"] == "low"
 
 
-def test_localize_promotes_lone_strong_bm25_top_suspect_to_medium_confidence(tmp_path: Path):
+def test_localize_lone_strong_bm25_top_suspect_stays_low_confidence(tmp_path: Path):
+    # A single lexical hit has no peers to be judged against, so a nominally
+    # high score can't earn "medium" — that requires real corroboration
+    # (see test_localize_strong_bm25_hit_surfaces_above_rank_one_junk below).
     repo = tmp_path / "repo"
     (repo / "pkg").mkdir(parents=True)
     (repo / "pkg" / "__init__.py").write_text("", encoding="utf-8")
@@ -263,8 +266,8 @@ def test_localize_promotes_lone_strong_bm25_top_suspect_to_medium_confidence(tmp
         result = localize(provider, index, "WidgetFailure happens", k=3)
 
         assert result["suspects"][0]["file"] == "pkg/only.py"
-        assert result["suspects"][0]["confidence"] == "medium"
-        assert result["low_confidence"] is False
+        assert result["suspects"][0]["confidence"] == "low"
+        assert result["low_confidence"] is True
     finally:
         provider.close()
         index.close()
