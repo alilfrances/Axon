@@ -258,9 +258,19 @@ def test_cortex_graph_context_miss_keeps_mcp_backend_without_fallback(monkeypatc
     provider = CortexProvider(repo)
     provider._cli_available = True
     provider._fallback_reason = "previous outage"
-    monkeypatch.setattr(provider, "_mcp_client", lambda: object())
-    monkeypatch.setattr(provider, "_graph_context_via_mcp", lambda client, symbol: None)
-    monkeypatch.setattr(provider, "_graph_context_via_export", lambda symbol: None)
+
+    def fake_mcp_client():
+        return object()
+
+    def fake_graph_context_via_mcp(client, symbol):
+        return None
+
+    def fake_graph_context_via_export(symbol):
+        return None
+
+    monkeypatch.setattr(provider, "_mcp_client", fake_mcp_client)
+    monkeypatch.setattr(provider, "_graph_context_via_mcp", fake_graph_context_via_mcp)
+    monkeypatch.setattr(provider, "_graph_context_via_export", fake_graph_context_via_export)
 
     ctx = provider.graph_context("MissingSymbol")
 

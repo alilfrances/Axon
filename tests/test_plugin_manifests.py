@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
-import tomllib
 from pathlib import Path
 
 
@@ -37,14 +37,16 @@ def test_codex_plugin_manifest_exposes_axon_mcp_server():
 
 
 def test_versions_stay_locked():
-    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     codex_manifest = _load(".codex-plugin/plugin.json")
     claude_manifest = _load(".claude-plugin/plugin.json")
     marketplace = _load(".claude-plugin/marketplace.json")
 
     from axon import __version__
 
-    version = pyproject["project"]["version"]
+    version_match = re.search(r'^version = "([^"]+)"$', pyproject, re.MULTILINE)
+    assert version_match is not None
+    version = version_match.group(1)
     assert __version__ == version
     assert codex_manifest["version"] == version
     assert claude_manifest["version"] == version

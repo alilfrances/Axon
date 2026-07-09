@@ -213,8 +213,9 @@ def _has_pytest_project(repo: Path) -> bool:
     pyproject = repo / "pyproject.toml"
     if pyproject.exists():
         try:
-            if "[tool.pytest" in pyproject.read_text(encoding="utf-8", errors="ignore"):
-                return True
+            text = pyproject.read_text(encoding="utf-8", errors="ignore")
         except OSError:
-            pass
+            text = ""
+        if "[tool.pytest" in text:
+            return True
     return any(path.name.startswith("test_") and path.suffix == ".py" for path in repo.rglob("*.py"))

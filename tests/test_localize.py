@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from pathlib import Path
+import axon.tools.localize as localize_tool
 import subprocess
+from pathlib import Path
 
+from axon import server
 from axon.bm25 import BM25Hit
 from axon.index import RepoIndex
 from axon.parsing import FileFacts, PythonAstParser
 from axon.providers.base import GraphContext, SearchHit
 from axon.providers.builtin import BuiltinProvider
 from axon.providers.cortex import _prefer_basename_definition
-from axon import server
-import axon.tools.localize as localize_tool
 from axon.tools.localize import _extract_signals, _fuse, _score_norms, _symbol_candidates, localize
 
 
