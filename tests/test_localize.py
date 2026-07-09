@@ -602,8 +602,6 @@ def test_stopwords_excluded_from_strong_identifiers():
 
 
 def test_localize_recency_boosts_recently_changed_file(git_fixture_repo):
-    from axon.tools.localize import _recency_candidates
-
     root = git_fixture_repo()
     (root / "calc" / "api.py").write_text(
         "from calc.core import divide\n\n"
@@ -616,7 +614,7 @@ def test_localize_recency_boosts_recently_changed_file(git_fixture_repo):
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "commit", "-m", "touch api"], cwd=root, check=True, capture_output=True, text=True)
 
-    cands = _recency_candidates(str(root))
+    cands = localize_tool._recency_candidates(str(root))
     assert cands and cands[0]["file"] == "calc/api.py"
     assert "recent" in cands[0]["evidence"]
 
@@ -634,9 +632,7 @@ def test_localize_recency_boosts_recently_changed_file(git_fixture_repo):
 
 
 def test_recency_candidates_non_git_repo_empty(fixture_repo):
-    from axon.tools.localize import _recency_candidates
-
-    assert _recency_candidates(str(fixture_repo())) == []
+    assert localize_tool._recency_candidates(str(fixture_repo())) == []
 
 
 def test_localize_attaches_enclosing_functions(fixture_repo):
