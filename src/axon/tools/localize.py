@@ -71,6 +71,11 @@ def localize(
     failing_test: str | None = None,
 ) -> dict:
     signals = _extract_signals(bug_text)
+    weights = dict(_WEIGHTS)
+    lexical_weight_reduced = not signals["strong_identifiers"]
+    if lexical_weight_reduced:
+        weights["bm25"] *= 0.5
+        weights["search"] *= 0.5
     ranked_lists = [
         ("traceback", _traceback_candidates(signals["tracebacks"])),
         ("path", _path_candidates(index, signals)),
@@ -85,9 +90,11 @@ def localize(
         spectrum_items, spectrum_note = _spectrum_candidates(str(index.repo_root), failing_test, max(k * 3, 10))
         if spectrum_items:
             ranked_lists.append(("spectrum", spectrum_items))
-    suspects = _fuse(ranked_lists, k)
-    _attach_functions(index, ranked_lists, suspects)
+    suspects = _fuse(ranked_lists, k, weights=weights)
+    _attach_functions(index, ranked_lists, suspects, weights=weights)
     note = "deterministic ranking; agent should rerank with reasoning"
+    if lexical_weight_reduced:
+        note = f"{note}; bug text has no code identifiers; lexical ranking weight reduced"
     if spectrum_note:
         note = f"{note}; {spectrum_note}"
     low_confidence = bool(suspects and suspects[0].get("confidence") == "low")
@@ -403,11 +410,17 @@ def _recency_candidates(repo_root: str, limit: int = 20) -> list[dict]:
     return out
 
 
-def _attach_functions(index: RepoIndex, ranked_lists: list[tuple[str, list[dict]]], suspects: list[dict]) -> None:
+def _attach_functions(
+    index: RepoIndex,
+    ranked_lists: list[tuple[str, list[dict]]],
+    suspects: list[dict],
+    weights: dict[str, float] | None = None,
+) -> None:
+    weights = weights or _WEIGHTS
     suspect_files = {s["file"] for s in suspects}
     hits: dict[str, list[tuple[int, float]]] = {}
     for source, candidates in ranked_lists:
-        weight = _WEIGHTS[source]
+        weight = weights[source]
         for cand in candidates:
             file = cand.get("file")
             line = int(cand.get("line", 1) or 1)
@@ -436,10 +449,15 @@ def _attach_functions(index: RepoIndex, ranked_lists: list[tuple[str, list[dict]
         suspect["functions"] = functions
 
 
-def _fuse(ranked_lists: list[tuple[str, list[dict]]], k: int) -> list[dict]:
+def _fuse(
+    ranked_lists: list[tuple[str, list[dict]]],
+    k: int,
+    weights: dict[str, float] | None = None,
+) -> list[dict]:
+    weights = weights or _WEIGHTS
     by_file: dict[str, _Candidate] = {}
     for source, candidates in ranked_lists:
-        weight = _WEIGHTS[source]
+        weight = weights[source]
         best_by_file: dict[str, tuple[int, dict]] = {}
         for rank, cand in enumerate(candidates, 1):
             file = cand["file"]

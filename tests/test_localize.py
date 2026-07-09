@@ -3,10 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 
+from axon.bm25 import BM25Hit
 from axon.index import RepoIndex
 from axon.providers.base import GraphContext, SearchHit
 from axon.providers.builtin import BuiltinProvider
 from axon import server
+import axon.tools.localize as localize_tool
 from axon.tools.localize import _extract_signals, _fuse, _symbol_candidates, localize
 
 
@@ -64,6 +66,14 @@ class MixedScoreProvider(BuiltinProvider):
         return GraphContext(symbol=symbol, backend=self.backend)
 
 
+class LexicalJunkProvider(BuiltinProvider):
+    def search(self, query: str, k: int = 10) -> list[SearchHit]:
+        return [SearchHit(file="pkg/junk.py", line=1, score=1.0, snippet="", backend=self.backend)]
+
+    def graph_context(self, symbol: str) -> GraphContext:
+        return GraphContext(symbol=symbol, backend=self.backend)
+
+
 def test_localize_traceback_ranks_frame_file_first(fixture_repo):
     repo = fixture_repo()
     provider = BuiltinProvider(repo)
@@ -103,6 +113,38 @@ def test_localize_no_traceback_finds_core_file_top_three(fixture_repo):
 
         files = [suspect["file"] for suspect in result["suspects"]]
         assert "calc/core.py" in files[:3]
+    finally:
+        provider.close()
+        index.close()
+
+
+def test_localize_lexical_only_matches_plain_search_rank_one(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "pkg").mkdir(parents=True)
+    (repo / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "pkg" / "billing.py").write_text(
+        "# payment receipt total rounding drift during checkout\n"
+        "def billing_total():\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+    (repo / "pkg" / "shipping.py").write_text(
+        "# parcel label delay during warehouse routing\n"
+        "def shipping_label():\n"
+        "    return 2\n",
+        encoding="utf-8",
+    )
+    provider = BuiltinProvider(repo)
+    index = RepoIndex(repo)
+    try:
+        index.refresh()
+        bug_text = "payment receipt total rounding drifts during checkout"
+        plain_search_top = provider.search(bug_text, 3)[0].file
+
+        result = localize(provider, index, bug_text, k=3)
+
+        assert result["signals"]["strong_identifiers"] == []
+        assert result["suspects"][0]["file"] == plain_search_top
     finally:
         provider.close()
         index.close()
@@ -251,6 +293,58 @@ def test_fuse_demotes_near_zero_bm25_rank_one_below_stronger_signals():
     assert result[2]["confidence"] == "low"
 
 
+def test_localize_damps_lexical_weight_when_no_strong_identifiers(monkeypatch, tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "pkg").mkdir(parents=True)
+    (repo / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "pkg" / "junk.py").write_text("def unrelated():\n    return 1\n", encoding="utf-8")
+    (repo / "pkg" / "target.py").write_text("def target():\n    return 2\n", encoding="utf-8")
+    monkeypatch.setattr(
+        localize_tool,
+        "_spectrum_candidates",
+        lambda repo, failing_test, k: ([{"file": "pkg/target.py", "line": 1, "evidence": "spectrum ochiai"}], None),
+    )
+    undamped = _fuse(
+        [
+            ("search", [{"file": "pkg/junk.py", "line": 1, "evidence": "search rank 1", "raw_score": 1.0}]),
+            ("bm25", [{"file": "pkg/junk.py", "line": 1, "evidence": "bm25 rank 1", "raw_score": 1.0}]),
+            ("spectrum", [{"file": "pkg/target.py", "line": 1, "evidence": "spectrum ochiai"}]),
+        ],
+        k=2,
+    )
+    provider = LexicalJunkProvider(repo)
+    index = RepoIndex(repo)
+    try:
+        index.refresh()
+        result = localize(provider, index, "ordinary failure during workflow", k=2, failing_test="tests/test_target.py")
+
+        assert undamped[0]["file"] == "pkg/junk.py"
+        assert result["signals"]["strong_identifiers"] == []
+        assert result["suspects"][0]["file"] == "pkg/target.py"
+    finally:
+        provider.close()
+        index.close()
+
+
+def test_localize_notes_when_lexical_weight_is_reduced(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / "pkg").mkdir(parents=True)
+    (repo / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "pkg" / "only.py").write_text("def handle():\n    return 1\n", encoding="utf-8")
+    provider = Bm25OnlyProvider(repo)
+    index = RepoIndex(repo)
+    try:
+        index.refresh()
+        no_identifier_result = localize(provider, index, "ordinary failure during workflow", k=3)
+        strong_identifier_result = localize(provider, index, "WidgetFailure happens", k=3)
+
+        assert "bug text has no code identifiers; lexical ranking weight reduced" in no_identifier_result["note"]
+        assert "bug text has no code identifiers; lexical ranking weight reduced" not in strong_identifier_result["note"]
+    finally:
+        provider.close()
+        index.close()
+
+
 def test_localize_lone_strong_bm25_top_suspect_stays_low_confidence(tmp_path: Path):
     # A single lexical hit has no peers to be judged against, so a nominally
     # high score can't earn "medium" — that requires real corroboration
@@ -311,6 +405,30 @@ def test_localize_strong_bm25_hit_surfaces_above_rank_one_junk(tmp_path: Path):
     finally:
         provider.close()
         index.close()
+
+
+def test_builtin_search_caps_chunks_per_file_so_small_file_surfaces(tmp_path: Path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    provider = BuiltinProvider(repo)
+    try:
+        corpus_hits = [
+            BM25Hit(f"file:pkg/large.py:{idx}", 10.0 - idx, "")
+            for idx in range(1, 6)
+        ]
+        corpus_hits.append(BM25Hit("file:pkg/small.py:1", 4.0, ""))
+        provider._doc_meta = {
+            **{f"file:pkg/large.py:{idx}": ("pkg/large.py", idx * 100) for idx in range(1, 6)},
+            "file:pkg/small.py:1": ("pkg/small.py", 1),
+        }
+        provider.corpus.search = lambda query, k=10: corpus_hits[:k]
+        provider._snippet = lambda file, line, query: f"{file}:{line}"
+
+        hits = provider.search("relevant query", k=3)
+
+        assert [hit.file for hit in hits] == ["pkg/large.py", "pkg/large.py", "pkg/small.py"]
+    finally:
+        provider.close()
 
 
 def test_stopwords_excluded_from_strong_identifiers():

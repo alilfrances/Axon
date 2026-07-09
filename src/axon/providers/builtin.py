@@ -97,7 +97,8 @@ class BuiltinProvider:
                     backend=self.backend,
                 )
             )
-        return dedupe_hits(raw, k)
+        deduped = dedupe_hits(raw, len(raw))
+        return _cap_hits_per_file(deduped, per_file=2, k=k)
 
     def _rebuild_corpus(self) -> None:
         docs: dict[str, str] = {}
@@ -140,3 +141,17 @@ class BuiltinProvider:
                 start = max(0, idx - 2)
                 break
         return "\n".join(lines[start:start + 5])
+
+
+def _cap_hits_per_file(hits: list[SearchHit], per_file: int, k: int) -> list[SearchHit]:
+    out: list[SearchHit] = []
+    counts: dict[str, int] = {}
+    for hit in hits:
+        count = counts.get(hit.file, 0)
+        if count >= per_file:
+            continue
+        counts[hit.file] = count + 1
+        out.append(hit)
+        if len(out) >= k:
+            break
+    return out
